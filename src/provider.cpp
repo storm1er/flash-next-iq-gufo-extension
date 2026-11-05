@@ -29,7 +29,7 @@ void flash_next_iq_provider_register(gufo::ext::Registry& registry) {
                            kProvider_flash_next_iq);
 #if defined(ENGINE_ENABLE_HIP)
   registry.AddTextProvider({
-      .id = "flash-next-q4",
+      .id = "flash-next-iq",
       .probe = &gufo::models::flash_next_iq::ProbeFlashNext,
       .probe_gguf = &gufo::models::flash_next_iq::ProbeFlashNextGguf,
       .create = &gufo::models::flash_next_iq::CreateQwenFlashNextTextRunner,

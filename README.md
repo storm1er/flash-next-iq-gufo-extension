@@ -40,9 +40,8 @@ still resolve to the built-in provider.
   extension-private namespaces (`gufo::hip_iq`, `gufo::models::qwen_iq`,
   `gufo::tokenization_iq`, `fniq_*` kernels), so this extension builds and
   links with the shipped `qwen38_flash_next`/Qwen models in one binary
-  (verified: zero duplicate symbols). One caveat remains at file-claim time:
-  the built-in probe accepts any `qwen4exp` checkpoint, so an IQ-quantized
-  file must still reach this provider — see Limitations.
+  (verified: zero duplicate symbols, IQ checkpoint served through this
+  provider). One caveat remains at file-claim time — see Limitations.
 
 ## Build
 
@@ -142,12 +141,12 @@ built-in provider.
 - IQ4_NL wide (128-row) down tiles go through the format-generic
   `RoutedF16GEMMKernel` rather than the specialized byte-block kernel.
 - Provider claiming in a combined binary: the built-in `qwen38_flash_next`
-  probe accepts any `qwen4exp` checkpoint, and text providers are matched in
-  registration order (in-tree first), so an IQ checkpoint built into the same
-  binary as the built-in currently lands on the built-in and fails with
-  "unsupported format IQ3_S". Until the upstream probe narrows to its
-  supported expert formats, load IQ checkpoints from a selection without
-  `qwen38_flash_next` (or an upstream-patched Gufo).
+  probe accepts any `qwen4exp` checkpoint and registers before out-of-tree
+  extensions, so with stock Gufo an IQ checkpoint lands on the built-in and
+  fails with "unsupported format IQ3_S". [gufo-org/gufo#1041]
+  (https://github.com/gufo-org/gufo/pull/1041) narrows that probe (verified
+  end-to-end with this extension); until it lands, load IQ checkpoints from
+  a selection without `qwen38_flash_next`.
 - The vision encoder is inherited unchanged from 0.30.0 and was validated
   only as far as loading (`--mmproj`); image requests follow the built-in
   provider's path.
