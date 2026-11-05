@@ -58,6 +58,38 @@ template flake shape (Gufo as a flake input, this repo passed via
 `GUFO_EXTENSION_DIRS` / `gufo.packages...override { extensions = [ ... ]; }`)
 with the same focused selection.
 
+## Container image
+
+A prebuilt runtime image (ubuntu 24.04 base with the extension-built `gufo`)
+is published at `ghcr.io/storm1er/flash-next-iq-gufo-extension:latest`,
+alongside pinned versions (e.g. `0.30.0-iq.1`). ROCm userspace is **not**
+baked in: mount the host's ROCm directory read-only so the image always
+matches the host KFD driver (`LD_LIBRARY_PATH=/opt/rocm/lib` is preset).
+
+```sh
+docker run --rm --device /dev/kfd --device /dev/dri \
+  --group-add video --group-add render --ulimit memlock=-1 \
+  -v /opt/rocm:/opt/rocm:ro \
+  -v /path/to/model-snapshot:/models:ro \
+  -p 8080:8080 \
+  ghcr.io/storm1er/flash-next-iq-gufo-extension:latest \
+  gufo serve --host 0.0.0.0 --port 8080 llm \
+    --model /models/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf \
+    --speculative mtp --mtp-model /models/MTP/mtp-Qwen3.8-Flash-Next-Q8_0.gguf \
+    --mmproj /models/mmproj-BF16.gguf \
+    --sessions 2 --context 262144 \
+    --served-model-name Qwen3.8-Flash-Next
+```
+
+If `/opt/rocm` on the host is only a set of compatibility symlinks, bind the
+versioned directory it points into instead, e.g.
+`-v /opt/rocm/core-10.0:/opt/rocm:ro`. The image ships `video` (44) and
+`render` (992) groups so `--group-add` names resolve; in
+`docker-compose.yml` the same keys work verbatim under
+`devices`/`group_add`/`ulimits`. To rebuild the image yourself, copy any
+focused-selection `gufo` build to `dist/gufo` and run
+`docker build -f docker/runtime.Dockerfile .`.
+
 ## Usage
 
 ```sh
