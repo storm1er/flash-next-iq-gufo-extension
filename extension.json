@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "name": "flash_next_iq",
+  "version": "0.1.0",
+  "api_version": ">= 0.2.0",
+  "entry": "flash_next_iq_register",
+  "registration_target": "gufo_flash_next_iq",
+  "depends": [],
+  "platforms": [
+    "linux"
+  ],
+  "providers": [
+    {
+      "id": "flash-next-iq",
+      "capability": "text_generation",
+      "keys": [
+        "gguf:qwen4exp-iq"
+      ],
+      "model_ids": [
+        "flash-next-iq"
+      ],
+      "speculative": [
+        "mtp"
+      ],
+      "target": "gufo_flash_next_iq_hip",
+      "entry": "flash_next_iq_provider_register"
+    }
+  ],
+  "options": [],
+  "targets": {
+    "gufo_flash_next_iq": {
+      "requires": []
+    },
+    "gufo_flash_next_iq_hip": {
+      "requires": [
+        "hip"
+      ]
+    }
+  },
+  "production_paths": {
+    "include": [
+      "src/**/*.cpp",
+      "src/**/*.h",
+      "src/**/*.hpp",
+      "src/**/*.hip",
+      "extension.*"
+    ],
+    "exclude": [
+      "tests/"
+    ]
+  },
+  "vendored_paths": [
+    "src/kernels/rocm/mmq/",
+    "src/qwen/"
+  ],
+  "docs": {
+    "title": "Qwen3.8 Flash-Next IQ quants",
+    "inputs": "IQ4_XS-family GGUF (IQ3_S/IQ4_XS/IQ4_NL routed experts); text/images",
+    "guide": "README.md"
+  },
+  "test_labels": [
+    "flash_next_iq"
+  ]
+}

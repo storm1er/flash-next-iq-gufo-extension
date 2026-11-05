@@ -1,0 +1,99 @@
+# flash_next_iq — Qwen3.8 Flash-Next IQ-quant extension for Gufo
+
+Community (out-of-tree) source extension that lets Gufo serve the
+**UD-IQ4_XS** quantization family of `Qwen3.8-Flash-Next` GGUF checkpoints on
+AMD Strix Halo (`gfx1151`): routed experts in **IQ3_S / IQ4_XS** (gate/up) and
+**IQ4_NL** (down), logits head in **Q6_K**, with MTP speculative decoding and
+continuation (prompt-cache) support.
+
+It follows the [community model](https://github.com/gufo-org/gufo/blob/main/docs/model-extensions/DISTRIBUTION.md):
+an independent repository compiled against a pinned upstream Gufo with
+`-DGUFO_EXTENSION_DIRS`, not a fork of Gufo. The probe only claims `qwen4exp`
+checkpoints whose routed experts are IQ-quantized, so plain Q4_K_XL files
+still resolve to the built-in provider.
+
+## Provenance
+
+- Model sources: Gufo 0.30.0 `src/models/qwen38_flash_next` (MIT), with the
+  IQ3_S/IQ4_XS/IQ4_NL + Q6_K work re-applied from the `gufo-iq4_xs` fork
+  (commits `b13c2fa6..912679bc`).
+- `src/qwen/`: vendored copy of Gufo's private `src/families/qwen/*` (MIT) —
+  the external-extension sandbox does not link `gufo_core`/`gufo_qwen_*`, so
+  the family layer is rebuilt as extension-private targets.
+- `src/kernels/rocm/mmq/`: GGML-derived MMQ/MoE kernels (MIT, see the
+  `VENDOR.md` inside).
+- Namespace `gufo::models::flash_next_iq`; provider id `flash-next-iq`,
+  artifact key `gguf:qwen4exp-iq`.
+
+## Requirements
+
+- Linux x86-64, AMD `gfx1151` (ROCm ≥ 6.4 toolchain with hipcc; tested with
+  ROCm 7.15 / clang 23), HIP `gfx1151` support in Gufo ≥ 0.30.
+- **Focused selection builds only** (`-DGUFO_EXTENSIONS=flash_next_iq`). The
+  vendored Qwen family copies keep their original namespaces, so building this
+  extension together with the shipped Qwen models would duplicate symbols.
+
+## Build
+
+```sh
+# In a Gufo checkout (e.g. 0.30.0), without Nix. On a host without the -dev
+# packages, point PKG_CONFIG_PATH at a local apt-extracted dev prefix first.
+PKG_CONFIG_PATH=/path/to/devdeps/usr/lib/x86_64-linux-gnu/pkgconfig \
+cmake --preset release \
+  -DGUFO_EXTENSION_DIRS=/path/to/flash-next-iq-gufo-extension \
+  -DGUFO_EXTENSIONS=flash_next_iq
+cmake --build --preset release --target gufo --parallel 4
+```
+
+`gufo diagnose --section extensions --json` then lists `flash_next_iq` with
+its source directory and provenance. For a Nix build, use the extension
+template flake shape (Gufo as a flake input, this repo passed via
+`GUFO_EXTENSION_DIRS` / `gufo.packages...override { extensions = [ ... ]; }`)
+with the same focused selection.
+
+## Usage
+
+```sh
+gufo serve --model /models/UD-IQ4_XS --mtp-model /models/next-nvfp4-mtp.gguf \
+  --port 8080 --context 262144
+```
+
+`--mtp-model` is a core CLI option, so it is unchanged from the built-in
+provider; `--sessions`, `--context`, `--cache-ram-bytes` work as usual.
+The `gufo prompt` / `gufo bench` paths support MTP too (validated by the
+fork-derived test matrix).
+
+## Tests
+
+```sh
+cmake --preset release ... -DGUFO_FLASH_NEXT_IQ_TESTS=ON
+cmake --build --preset release --target \
+  flash_next_iq_iq_ops_test flash_next_iq_routed_wmma_ops_test
+LD_LIBRARY_PATH=/opt/rocm/lib ./build/release/extensions/build/flash_next_iq/build/flash_next_iq_iq_ops_test
+LD_LIBRARY_PATH=/opt/rocm/lib ./build/release/extensions/build/flash_next_iq/build/flash_next_iq_routed_wmma_ops_test
+```
+
+Measured on a gfx1151 machine (Nov 2026), with the production server still
+resident: `iq_ops_test` passes all IQ3_S/IQ4_XS/IQ4_NL vector/MMQ and Q6_K
+head checks (worst relative error ≈ 4.6e-3 against the CPU dequantizers);
+`routed_wmma_ops_test` passes every IQ tile-row configuration with F16-vs-F64
+error ≤ 0.53 % of output scale (threshold 2e-3). Both tests only allocate
+small tensors, so they run alongside a loaded model.
+
+## Limitations
+
+- IQ types use two separate RoutedF16 GEMMs for gate/up instead of the paired
+  Q4_K/Q5_K kernel (0.30 reworked that kernel before porting); prefill of the
+  expert layer is slightly slower than the 0.12 fork's paired route, decode
+  is unaffected.
+- IQ4_NL wide (128-row) down tiles go through the format-generic
+  `RoutedF16GEMMKernel` rather than the specialized byte-block kernel.
+- Coexistence with the shipped `qwen38_flash_next`/Qwen family libraries in
+  one binary is not supported (vendored namespaces unchanged); see
+  Requirements.
+- End-to-end serving parity with the fork (prefill/decode tok/s) still needs
+  one real model-load run; operator-level parity is covered by the tests above.
+
+## License
+
+MIT (same as Gufo); third-party notices in `LICENSE` and `src/kernels/rocm/mmq/VENDOR.md`.
