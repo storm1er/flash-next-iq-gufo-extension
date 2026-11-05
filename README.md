@@ -80,19 +80,28 @@ head checks (worst relative error ≈ 4.6e-3 against the CPU dequantizers);
 error ≤ 0.53 % of output scale (threshold 2e-3). Both tests only allocate
 small tensors, so they run alongside a loaded model.
 
+End-to-end on the real UD-IQ4_XS checkpoint + Q8_0 MTP draft + BF16 mmproj
+at 262K context, 2 sessions (cold cache): load 79 s / 80.7 GiB device,
+decode 51–61 tok/s with MTP (draft acceptance 74–85 %), coherent reasoning
+output, and working continuation checkpoints (~269 MiB) with shared-prefix
+reuse. `--mtp-model` and the component cache behave exactly like the
+built-in provider.
+
 ## Limitations
 
 - IQ types use two separate RoutedF16 GEMMs for gate/up instead of the paired
   Q4_K/Q5_K kernel (0.30 reworked that kernel before porting); prefill of the
   expert layer is slightly slower than the 0.12 fork's paired route, decode
-  is unaffected.
+  is unaffected. Wide prefill builds two routed tile maps (narrow for the
+  dual projection, 128-row for down) via `Executor::RouteHints`.
 - IQ4_NL wide (128-row) down tiles go through the format-generic
   `RoutedF16GEMMKernel` rather than the specialized byte-block kernel.
 - Coexistence with the shipped `qwen38_flash_next`/Qwen family libraries in
   one binary is not supported (vendored namespaces unchanged); see
   Requirements.
-- End-to-end serving parity with the fork (prefill/decode tok/s) still needs
-  one real model-load run; operator-level parity is covered by the tests above.
+- The vision encoder is inherited unchanged from 0.30.0 and was validated
+  only as far as loading (`--mmproj`); image requests follow the built-in
+  provider's path.
 
 ## License
 

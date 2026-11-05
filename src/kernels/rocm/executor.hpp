@@ -551,7 +551,8 @@ private:
   void RoutedHints(const DeviceTensor& w, std::uint32_t n_tokens) const;
   /// Reads the routing of the current batch back and derives the tile
   /// hints for its expert GEMMs (tiled batches only).
-  bool RouteHints(std::uint32_t n_tokens, std::string* error_msg) const;
+  bool RouteHints(std::uint32_t n_tokens, bool paired_wide,
+                  std::string* error_msg) const;
   /// Routed gate/up projections followed by SwiGLU.
   bool GatedExperts(const DeviceTensor& a, const DeviceTensor& b,
                     const float* x, const std::int32_t* ids, float* out,
@@ -887,6 +888,10 @@ private:
   mutable std::uint32_t routed_max_rows_{0};    ///< 0 = no readback yet
   mutable std::uint32_t routed_n_tiles_{0};     ///< routed_tile_rows_ tiles
   mutable std::uint32_t routed_wide_tiles_{0};  ///< prefill 128-row tiles
+  /// Offset of the 128-row map inside s_.routed_tiles. Zero when the paired
+  /// gate/up kernel owns the single wide map; the IQ dual-projection pass
+  /// packs its narrow map first, so the down pass reads the wide map here.
+  mutable std::uint32_t routed_wide_offset_{0};
   mutable std::uint32_t routed_tile_rows_{48};  ///< token rows per tile
   mutable int routed_tile_cols_{0};
   float* logits_host_{nullptr};

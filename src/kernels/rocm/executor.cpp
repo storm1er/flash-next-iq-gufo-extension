@@ -2076,7 +2076,7 @@ void Executor::RoutedHints(const DeviceTensor& w,
       RoutedTileCols(n_tokens, config().num_experts_used, w.experts));
 }
 
-bool Executor::RouteHints(std::uint32_t n_tokens,
+bool Executor::RouteHints(std::uint32_t n_tokens, bool paired_wide,
                           std::string* error_msg) const {
   // Every column tile past an expert's bucket still costs a dispatch and a
   // full shared-memory reservation, so the grid is cut to the real largest
@@ -2087,6 +2087,7 @@ bool Executor::RouteHints(std::uint32_t n_tokens,
   routed_max_rows_ = 0;
   routed_n_tiles_ = 0;
   routed_wide_tiles_ = 0;
+  routed_wide_offset_ = 0;
   if (!ExpertMatrixRows(n_tokens)) {
     return true;
   }
@@ -2114,10 +2115,20 @@ bool Executor::RouteHints(std::uint32_t n_tokens,
     }
   };
   if (WidePrefill(n_tokens)) {
-    // Prefill batches: one map of 128-token tiles serves the paired gate/up
-    // and the down projections.
-    append(128);
-    routed_wide_tiles_ = n_tiles;
+    if (paired_wide) {
+      // Paired gate/up and down share one map of 128-token tiles.
+      append(128);
+      routed_wide_tiles_ = n_tiles;
+    } else {
+      // IQ formats have no paired kernel: the dual gate/up projection runs
+      // on the 16/48-row map at offset 0, and the down pass reads the
+      // 128-row map that follows it in the same upload.
+      append(routed_tile_rows_);
+      routed_n_tiles_ = n_tiles;
+      routed_wide_offset_ = n_tiles;
+      append(128);
+      routed_wide_tiles_ = n_tiles - routed_wide_offset_;
+    }
   } else {
     append(routed_tile_rows_);
     routed_n_tiles_ = n_tiles;
@@ -3201,7 +3212,13 @@ bool Executor::MoeExperts(const DeviceLayer& l, const float* x, float* out,
   const Config& c = config();
   const std::uint32_t used = c.num_experts_used;
   const std::uint32_t slots = n_tokens * used;
-  if (!RouteHints(n_tokens, error_msg)) {
+  // Only the K-quant paired kernel consumes the single wide map; with IQ
+  // formats RouteHints must also keep the narrow map for the dual pass.
+  const bool paired_wide =
+      WidePrefill(n_tokens) &&
+      (l.ffn_gate_exps.type == GgmlType::kQ4_K ||
+       l.ffn_gate_exps.type == GgmlType::kQ5_K);
+  if (!RouteHints(n_tokens, paired_wide, error_msg)) {
     return false;
   }
   // Tiled batches take the WMMA route: assignments compacted by expert
@@ -3264,7 +3281,8 @@ bool Executor::MoeExperts(const DeviceLayer& l, const float* x, float* out,
     // The down projection's rows are F16 too: the epilogue reads half the
     // bytes of the largest routed intermediate.
     if (!RoutedF16Gemm(l.ffn_down_exps.data, down_type, up_half,
-                       s_.routed_tiles,
+                       wide_down ? s_.routed_tiles + routed_wide_offset_
+                                 : s_.routed_tiles,
                        wide_down ? routed_wide_tiles_ : routed_n_tiles_,
                        wide_down ? 128 : routed_tile_rows_, s_.routed_bounds,
                        s_.rows_slot, s_.rows_slot, nullptr, nullptr,
