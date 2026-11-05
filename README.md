@@ -143,10 +143,9 @@ built-in provider.
 - Provider claiming in a combined binary: the built-in `qwen38_flash_next`
   probe accepts any `qwen4exp` checkpoint and registers before out-of-tree
   extensions, so with stock Gufo an IQ checkpoint lands on the built-in and
-  fails with "unsupported format IQ3_S". [gufo-org/gufo#1041]
-  (https://github.com/gufo-org/gufo/pull/1041) narrows that probe (verified
-  end-to-end with this extension); until it lands, load IQ checkpoints from
-  a selection without `qwen38_flash_next`.
+  fails with "unsupported format IQ3_S". [gufo-org/gufo#1041](https://github.com/gufo-org/gufo/pull/1041)
+  narrows that probe (verified end-to-end with this extension); until it lands,
+  load IQ checkpoints from a selection without `qwen38_flash_next`.
 - The vision encoder is inherited unchanged from 0.30.0 and was validated
   only as far as loading (`--mmproj`); image requests follow the built-in
   provider's path.
