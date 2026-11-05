@@ -14,14 +14,21 @@ still resolve to the built-in provider.
 
 ## Provenance
 
-- Model sources: Gufo 0.30.0 `src/models/qwen38_flash_next` (MIT), with the
-  IQ3_S/IQ4_XS/IQ4_NL + Q6_K work re-applied from the `gufo-iq4_xs` fork
-  (commits `b13c2fa6..912679bc`).
-- `src/qwen/`: vendored copy of Gufo's private `src/families/qwen/*` (MIT) —
-  the external-extension sandbox does not link `gufo_core`/`gufo_qwen_*`, so
-  the family layer is rebuilt as extension-private targets.
+- Model sources: [Gufo](https://github.com/gufo-org/gufo) 0.30.0
+  [`src/models/qwen38_flash_next`](https://github.com/gufo-org/gufo/tree/v0.30.0/src/models/qwen38_flash_next)
+  (MIT), with the IQ3_S/IQ4_XS/IQ4_NL + Q6_K work re-applied from the
+  [`gufo-iq4_xs` fork](https://github.com/johandevlabs/gufo-iq4_xs)
+  ([`b13c2fa6..912679bc`](https://github.com/johandevlabs/gufo-iq4_xs/compare/b13c2fa6b6abf71266529f2c878e07704f28dfd7...912679bccb9e9b91c6ae4000fc017b83a2c630a7)).
+- `src/qwen/`: vendored copy of Gufo's private
+  [`src/families/qwen/*`](https://github.com/gufo-org/gufo/tree/v0.30.0/src/families/qwen)
+  (MIT) — the external-extension sandbox does not link
+  `gufo_core`/`gufo_qwen_*`, so the family layer is rebuilt as
+  extension-private targets.
 - `src/kernels/rocm/mmq/`: GGML-derived MMQ/MoE kernels (MIT, see the
   `VENDOR.md` inside).
+- Built and validated against upstream Gufo
+  [`2c97b72d`](https://github.com/gufo-org/gufo/tree/2c97b72d8671ddd0c74ae7d517b8cef4ebb78871)
+  (v0.30.0+9), pinned in `flake.nix`.
 - Namespace `gufo::models::flash_next_iq`; provider id `flash-next-iq`,
   artifact key `gguf:qwen4exp-iq`.
 
