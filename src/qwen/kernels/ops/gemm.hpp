@@ -14,7 +14,7 @@
 #include <hip/hip_runtime.h>
 #include <hipblas/hipblas.h>
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 struct HipblasLtDispatchInfo {
   int algorithm_id{-1};
@@ -94,7 +94,7 @@ private:
 void LaunchGEMV(
     const void* A, core::GgmlType a_type, const float* x, float* y,
     std::size_t M, std::size_t K, hipStream_t stream = nullptr,
-    models::qwen::QwenGemmMode mode = models::qwen::QwenGemmMode::kHipDecode);
+    models::qwen_iq::QwenGemmMode mode = models::qwen_iq::QwenGemmMode::kHipDecode);
 
 /// opt-c1xx-q8k-gemv: computes y = A * x where A is stored as block_q8_K
 /// ({ float d; int8_t qs[256]; int16_t bsums[16]; }, QK_K=256). The dot runs
@@ -322,7 +322,7 @@ void LaunchHipblasGEMMBF16(hipblasHandle_t handle, const void* A_bf16,
                            std::size_t batch_size, std::size_t M, std::size_t K,
                            hipStream_t stream = nullptr);
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 
 #endif  // defined(ENGINE_ENABLE_HIP)
 

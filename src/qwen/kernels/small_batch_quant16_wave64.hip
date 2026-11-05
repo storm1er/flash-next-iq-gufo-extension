@@ -4,7 +4,7 @@
 #include "qwen/kernels/small_batch_gemm.hpp"
 #include "qwen/kernels/small_batch_quant16_wave64.hpp"
 
-namespace gufo::hip::detail {
+namespace gufo::hip_iq::detail {
 namespace {
 
 template<core::GgmlType Type, std::size_t Groups, bool FusedSwiGLU = false>
@@ -88,5 +88,5 @@ void LaunchPackedSwiGLUSixteenWave64(core::GgmlType type, const void* w,
                                               groups);
 }
 
-}  // namespace gufo::hip::detail
+}  // namespace gufo::hip_iq::detail
 #endif

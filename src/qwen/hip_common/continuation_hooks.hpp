@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <memory>
 
-namespace gufo::models::qwen {
+namespace gufo::models::qwen_iq {
 namespace vision {
 struct Prompt;
 struct RopeLayout;
@@ -88,5 +88,5 @@ public:
 private:
   ContinuationHooks* hooks_;
 };
-}  // namespace gufo::models::qwen
+}  // namespace gufo::models::qwen_iq
 #endif

@@ -9,7 +9,7 @@
 #include <gufo/ext/experimental/dispatch_telemetry.hpp>
 #include "qwen/kernels/ops/attention.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 __global__ void WriteKVCachePtrKernel(
     const float* __restrict__ k, const float* __restrict__ v,
@@ -307,22 +307,22 @@ void LaunchAttention(const float* q, const float* k, const float* v,
 
   if (head_dim == 256 && num_kv_heads > 0 && (num_heads % num_kv_heads) == 0) {
     if (k_cache != nullptr && v_cache != nullptr) {
-      detail::EmitAttentionDispatch("decode_online_fp32_graph", "");
+      gufo::hip::detail::EmitAttentionDispatch("decode_online_fp32_graph", "");
       QwenDecodeOnlineAttentionPtrKernel<<<num_heads, 32, 0, stream>>>(
           q, gate, k_cache, v_cache, out_context, layer_idx, d_pos, max_context,
           num_heads, num_kv_heads);
     } else {
-      detail::EmitAttentionDispatch("decode_online_fp16_graph", "");
+      gufo::hip::detail::EmitAttentionDispatch("decode_online_fp16_graph", "");
       QwenDecodeOnlineAttentionHalfPtrKernel<<<num_heads, 32, 0, stream>>>(
           q, gate, static_cast<const __half*>(k_cache_f16),
           static_cast<const __half*>(v_cache_f16), out_context, layer_idx,
           d_pos, max_context, num_heads, num_kv_heads);
     }
   } else {
-    detail::EmitAttentionDispatch(
+    gufo::hip::detail::EmitAttentionDispatch(
         "none", "decode_online_fp32_graph: unsupported_shape");
   }
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

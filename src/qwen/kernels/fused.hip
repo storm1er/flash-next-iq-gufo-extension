@@ -14,7 +14,7 @@
 #include "qwen/kernels/ops.hpp"
 #include "qwen/hip_common/quant_ops.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 namespace {
 
 __launch_bounds__(256, 4) __global__ void FusedQKNormRoPEKvWriteKernel(
@@ -27,7 +27,7 @@ __launch_bounds__(256, 4) __global__ void FusedQKNormRoPEKvWriteKernel(
     const std::uint32_t* __restrict__ d_pos, std::uint32_t max_context,
     std::uint32_t num_heads, std::uint32_t num_kv_heads, std::uint32_t head_dim,
     std::uint32_t rotary_dim, float rope_theta, float eps,
-    const models::qwen::vision::DeviceRope* rope) {
+    const models::qwen_iq::vision::DeviceRope* rope) {
   const std::uint32_t block = blockIdx.x;
   const std::size_t tid = threadIdx.x;
   const std::uint32_t half_rot = rotary_dim / 2;
@@ -69,7 +69,7 @@ __launch_bounds__(256, 4) __global__ void FusedQKNormRoPEKvWriteKernel(
           static_cast<float>(2 * p) / static_cast<float>(rotary_dim);
       const float inv_freq = 1.0F / powf(rope_theta, exponent);
       const float angle =
-          models::qwen::vision::RopePosition(rope, pos, p) * inv_freq;
+          models::qwen_iq::vision::RopePosition(rope, pos, p) * inv_freq;
       const float cos_val = cosf(angle);
       const float sin_val = sinf(angle);
       q_out[head_base + p] = (q0 * cos_val) - (q1 * sin_val);
@@ -129,7 +129,7 @@ __launch_bounds__(256, 4) __global__ void FusedQKNormRoPEKvWriteKernel(
         static_cast<float>(2 * p) / static_cast<float>(rotary_dim);
     const float inv_freq = 1.0F / powf(rope_theta, exponent);
     const float angle =
-        models::qwen::vision::RopePosition(rope, pos, p) * inv_freq;
+        models::qwen_iq::vision::RopePosition(rope, pos, p) * inv_freq;
     const float cos_val = cosf(angle);
     const float sin_val = sinf(angle);
     const float k0_rot = (k0 * cos_val) - (k1 * sin_val);
@@ -177,7 +177,7 @@ void LaunchFusedQKNormRoPEKvWrite(
     std::uint32_t max_context, std::uint32_t num_heads,
     std::uint32_t num_kv_heads, std::uint32_t head_dim,
     std::uint32_t rotary_dim, float rope_theta, float eps, hipStream_t stream,
-    const models::qwen::vision::DeviceRope* rope) {
+    const models::qwen_iq::vision::DeviceRope* rope) {
   FusedQKNormRoPEKvWriteKernel<<<num_heads + num_kv_heads, 256, 0, stream>>>(
       q, k, v, q_weight, k_weight, q_out, k_out, k_cache, v_cache,
       static_cast<__half*>(k_cache_f16), static_cast<__half*>(v_cache_f16),
@@ -185,5 +185,5 @@ void LaunchFusedQKNormRoPEKvWrite(
       rotary_dim, rope_theta, eps, rope);
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

@@ -70,7 +70,7 @@ std::uint32_t HcInjectParts(std::uint32_t hidden);
 std::uint32_t HcInjectPartsVec4(std::uint32_t hidden);
 /// A non-null `mixed_q8` (hidden % 32 == 0) also receives mixed as the
 /// small-batch projections' Q8_1 rows, byte-identical to
-/// qfn_mmq_quantize_q8_1.
+/// fniq_mmq_quantize_q8_1.
 void HcMixEpilogue(const float* xn, const float* gate, const float* inject_w,
                    float* mixed, float* inject, std::uint32_t n_tokens,
                    std::uint32_t hidden, std::uint32_t streams,
@@ -102,7 +102,7 @@ void HcCombine(float* res, const float* block_out, const float* inject,
                std::uint32_t streams, float eps, hipStream_t stream,
                bool decode = false);
 /// The one-block-per-stream HcCombine that also writes xn's Q8_1 rows (as
-/// qfn_mmq_quantize_q8_1 would) to `xn_q8` for a small-batch mixer down
+/// fniq_mmq_quantize_q8_1 would) to `xn_q8` for a small-batch mixer down
 /// projection. False, with nothing launched, without `gamma` or unless
 /// hidden % 32 == 0.
 bool HcCombineQ8_1(float* res, const float* block_out, const float* inject,
@@ -190,7 +190,7 @@ bool HcCombineMoeF16(
 /// x[i] = silu(x[i] * scale), in place over `count` floats.
 void SiluScale(float* x, float scale, std::size_t count, hipStream_t stream);
 /// SiluScale over `rows` rows of `k` that also writes x's Q8_1 rows, each
-/// `k_padded` wide, to `x_q8` as qfn_mmq_quantize_q8_1 would (the padding
+/// `k_padded` wide, to `x_q8` as fniq_mmq_quantize_q8_1 would (the padding
 /// blocks are left as they are). False, with nothing launched, unless k and
 /// k_padded >= k are multiples of 32.
 bool SiluScaleQ8_1(float* x, float scale, std::uint32_t rows, std::uint32_t k,
@@ -209,7 +209,7 @@ bool SwigluQ8Tiled(const float* gate, const float* up, void* out_q8,
 void SigmoidMul(float* x, const float* g, std::size_t count,
                 hipStream_t stream);
 /// SigmoidMul that also writes x's Q8_1 rows to `x_q8` as
-/// qfn_mmq_quantize_q8_1 would for unpadded rows. False, with nothing
+/// fniq_mmq_quantize_q8_1 would for unpadded rows. False, with nothing
 /// launched, unless count is a multiple of 32.
 bool SigmoidMulQ8_1(float* x, const float* g, std::size_t count, void* x_q8,
                     hipStream_t stream);
@@ -257,7 +257,7 @@ bool AttentionF16Gemm(const void* weights, const __half* input,
                       float* gate, __half* keys, __half* values,
                       std::uint32_t n_tokens, const std::uint32_t* position,
                       float theta, float eps, hipStream_t stream,
-                      const qwen::vision::DeviceRope* rope = nullptr,
+                      const qwen_iq::vision::DeviceRope* rope = nullptr,
                       const YarnRope& yarn = {});
 
 /// Exact Q8_0 HC up projection and F16-input mixer for the Flash Next
@@ -420,7 +420,7 @@ struct GdnCheckpoint {
 /// (K = v_heads * d) instead of `out`. With null `out_q8`, a non-null
 /// `out_half` receives F16 rows instead of `out`. With both null, a non-null
 /// `out_q8_1` also receives the rows' unpadded Q8_1 rows (as
-/// qfn_mmq_quantize_q8_1 writes them; d == 128). The epilogue, the reader
+/// fniq_mmq_quantize_q8_1 writes them; d == 128). The epilogue, the reader
 /// of `z`, waits for `z_ready` when it is set. Returns false when that wait
 /// cannot be queued. `convolved`
 /// consumes convolution rows already in conv_scratch; it requires null
@@ -486,7 +486,7 @@ bool PrepareAttention(const float* packed, std::uint32_t stride,
                       std::uint32_t kv_heads, std::uint32_t d,
                       std::uint32_t rotary_dim, const std::uint32_t* start_pos,
                       float theta, float eps, hipStream_t stream,
-                      const qwen::vision::DeviceRope* rope = nullptr,
+                      const qwen_iq::vision::DeviceRope* rope = nullptr,
                       bool prefill = false, const YarnRope& yarn = {});
 
 /// NEOX partial rotary on x [t][heads][d] at positions start_pos + t.
@@ -497,7 +497,7 @@ bool PrepareAttention(const float* packed, std::uint32_t stride,
 void Rope(float* x, std::uint32_t n_tokens, std::uint32_t heads,
           std::uint32_t d, std::uint32_t rotary_dim,
           const std::uint32_t* start_pos, float theta, hipStream_t stream,
-          const qwen::vision::DeviceRope* rope = nullptr,
+          const qwen_iq::vision::DeviceRope* rope = nullptr,
           const YarnRope& yarn = {});
 
 /// Stores f32 rows into the f16 cache at positions start_pos + t:
@@ -523,7 +523,7 @@ void PoolIndexerBlocks(const float* raw_keys, const float* gamma,
                        std::uint32_t grid_blocks, std::uint32_t ratio,
                        std::uint32_t dim, std::uint32_t rotary_dim, float theta,
                        float eps, std::uint32_t capacity, hipStream_t stream,
-                       const qwen::vision::DeviceRope* rope = nullptr,
+                       const qwen_iq::vision::DeviceRope* rope = nullptr,
                        const YarnRope& yarn = {});
 
 /// Dynamic YaRN: re-rotates `n_rows` cached post-RoPE key rows of `heads`
@@ -534,7 +534,7 @@ void RerotateKeys(const __half* source, __half* destination,
                   std::uint32_t first_row, std::uint32_t n_rows,
                   std::uint32_t heads, std::uint32_t head_dim,
                   std::uint32_t rotary, std::uint32_t pos_stride, float theta,
-                  const qwen::vision::DeviceRope* rope, const YarnRope& from,
+                  const qwen_iq::vision::DeviceRope* rope, const YarnRope& from,
                   const YarnRope& to, hipStream_t stream);
 
 /// Per query t (position *start_pos + first_token + t): scores every

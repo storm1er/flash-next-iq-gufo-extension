@@ -17,7 +17,7 @@
 #include "qwen/kernels/ops/gemm.hpp"
 #include "qwen/kernels/small_batch_gemm.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 using int32x4_t = __attribute__((__vector_size__(4 * sizeof(int)))) int;
 using int32x8_t = __attribute__((__vector_size__(8 * sizeof(int)))) int;
@@ -570,6 +570,6 @@ namespace detail {
                                                hipStream_t stream);
 }  // namespace detail
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif
 #endif

@@ -10,7 +10,7 @@
 #include "qwen/kernels/ops/gemm.hpp"
 #include "qwen/hip_common/quant_ops.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 template<std::uint32_t WavesPerBlock>
 __launch_bounds__(WavesPerBlock * 32, 4) __global__
@@ -195,5 +195,5 @@ void LaunchQ8KBlockGEMV(const void* A, core::GgmlType type, const float* x,
       <<<grid, kBlockThreads, 0, stream>>>(A, type, x, y, M, K);
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

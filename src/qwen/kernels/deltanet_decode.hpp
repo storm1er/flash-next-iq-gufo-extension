@@ -11,7 +11,7 @@
 #include "qwen/hip_common/recurrent_state.hpp"
 #include "qwen/kernels/ops/ssm.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 // The state tile is loaded once before the row loop and stored once after it.
 // A `Diverge` pass loads from `deltanet_in` (the buffer pinned for rollback)
@@ -389,5 +389,5 @@ __launch_bounds__(Resident ? 128 : 1024, 1) __global__
   }
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // GUFO_MODELS_QWEN_HIP_KERNELS_DELTANET_DECODE_HPP_

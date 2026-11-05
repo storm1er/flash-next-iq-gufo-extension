@@ -11,7 +11,7 @@
 #include "qwen/kernels/small_batch_gemm.hpp"
 #include "qwen/kernels/ops/gemm.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 template<std::uint32_t WavesPerBlock>
 __launch_bounds__(WavesPerBlock * 32, 4) __global__
@@ -490,5 +490,5 @@ void LaunchDequantizeToBf16(core::GgmlType type, const void* w,
   // Unsupported quant type: no-op.
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

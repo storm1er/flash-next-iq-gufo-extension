@@ -8,7 +8,7 @@
 #if defined(ENGINE_ENABLE_HIP)
 #include <hip/hip_runtime.h>
 
-namespace gufo::hip::detail {
+namespace gufo::hip_iq::detail {
 
 // Q4_K/Q5_K groups of sixteen rows, compiled with their qualified scheduler.
 // The caller validates the projection shape and group count (one to four).
@@ -24,7 +24,7 @@ void LaunchPackedSwiGLUSixteenWave64(core::GgmlType type, const void* w,
                                      const float* x, float* y,
                                      std::size_t groups, hipStream_t stream);
 
-}  // namespace gufo::hip::detail
+}  // namespace gufo::hip_iq::detail
 #endif
 
 #endif  // GUFO_MODELS_QWEN_HIP_KERNELS_SMALL_BATCH_QUANT16_WAVE64_HPP_

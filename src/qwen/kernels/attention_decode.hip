@@ -13,7 +13,7 @@
 #include "qwen/kernels/attention_decode_verify_wave64.hpp"
 #include "qwen/kernels/ops/attention.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 __global__ void WriteKVCacheKernel(
     const float* __restrict__ k, const float* __restrict__ v,
@@ -841,12 +841,12 @@ void LaunchAttention(const float* q, const float* k, const float* v,
         detail::SelectDecodeAttentionSplitCount(sequence_length);
     const dim3 partial_grid(num_heads, 1, split_count);
     if (k_cache != nullptr && v_cache != nullptr) {
-      detail::EmitAttentionDispatch("decode_split_k_fp32", "");
+      gufo::hip::detail::EmitAttentionDispatch("decode_split_k_fp32", "");
       QwenDecodeSplitKAttentionPartialsKernel<<<partial_grid, 32, 0, stream>>>(
           q, k_cache, v_cache, split_k_scratch, layer_idx, pos, max_context,
           num_heads, num_kv_heads, split_count);
     } else {
-      detail::EmitAttentionDispatch("decode_split_k_fp16", "");
+      gufo::hip::detail::EmitAttentionDispatch("decode_split_k_fp16", "");
       LaunchSplitKAttentionHalfPartials(
           q, static_cast<const __half*>(k_cache_f16),
           static_cast<const __half*>(v_cache_f16), split_k_scratch, layer_idx,
@@ -857,7 +857,7 @@ void LaunchAttention(const float* q, const float* k, const float* v,
   } else if (head_dim == 256 && num_kv_heads > 0 &&
              (num_heads % num_kv_heads) == 0) {
     if (k_cache != nullptr && v_cache != nullptr) {
-      detail::EmitAttentionDispatch(
+      gufo::hip::detail::EmitAttentionDispatch(
           "decode_online_fp32", split_k_supported
                                     ? "decode_split_k_fp32: missing_scratch"
                                     : "decode_split_k_fp32: below_threshold");
@@ -865,7 +865,7 @@ void LaunchAttention(const float* q, const float* k, const float* v,
           q, gate, k_cache, v_cache, out_context, layer_idx, pos, max_context,
           num_heads, num_kv_heads);
     } else {
-      detail::EmitAttentionDispatch(
+      gufo::hip::detail::EmitAttentionDispatch(
           "decode_online_fp16", split_k_supported
                                     ? "decode_split_k_fp16: missing_scratch"
                                     : "decode_split_k_fp16: below_threshold");
@@ -878,7 +878,7 @@ void LaunchAttention(const float* q, const float* k, const float* v,
     const std::size_t seq_len = static_cast<std::size_t>(pos) + 1;
     const std::size_t shared_scores_bytes = seq_len * sizeof(float);
     if (k_cache != nullptr && v_cache != nullptr) {
-      detail::EmitAttentionDispatch(
+      gufo::hip::detail::EmitAttentionDispatch(
           "decode_baseline_fp32",
           "decode_split_k_fp32: unsupported_shape; decode_online_fp32: "
           "unsupported_shape");
@@ -886,7 +886,7 @@ void LaunchAttention(const float* q, const float* k, const float* v,
           q, gate, k_cache, v_cache, out_context, layer_idx, pos, max_context,
           num_heads, num_kv_heads, head_dim);
     } else {
-      detail::EmitAttentionDispatch(
+      gufo::hip::detail::EmitAttentionDispatch(
           "decode_baseline_fp16",
           "decode_split_k_fp16: unsupported_shape; decode_online_fp16: "
           "unsupported_shape");
@@ -968,5 +968,5 @@ void LaunchCausalDecodeAttention(
   }
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

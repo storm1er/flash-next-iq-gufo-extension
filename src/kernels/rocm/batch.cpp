@@ -5,7 +5,7 @@
 #include <gufo/ext/experimental/managed_alloc.hpp>
 #include <stdexcept>
 
-#include "qfn_mmq.h"
+#include "fniq_mmq.h"
 #include "qwen/draft_vocab/draft_vocab.hpp"
 #include "kernels/rocm/executor.hpp"
 #include "kernels/rocm/kernels.hpp"
@@ -526,7 +526,7 @@ bool Executor::MtpHeads(std::span<const MtpHeadItem> items,
   const auto& full_head = model_->output();
   const std::size_t vocab = full_head.rows;
   const std::size_t prefix = prefix_head.rows;
-  const std::size_t kSmall = prefix + speculative::kDraftVocabExtraRows;
+  const std::size_t kSmall = prefix + speculative_iq::kDraftVocabExtraRows;
   std::array<std::uint32_t, kBatchSessions> slot{};
   std::uint32_t subset_rows = 0;
   for (std::uint32_t i = 0; i < n; ++i)
@@ -568,7 +568,7 @@ bool Executor::MtpHeads(std::span<const MtpHeadItem> items,
       return false;
     if (!AnyActive(items))
       return true;
-    static_assert(speculative::kDraftVocabExtraRows <= 1024,
+    static_assert(speculative_iq::kDraftVocabExtraRows <= 1024,
                   "GatherDraftLogits is one block");
     if (mixed) {
       if (!DenseBatch(full_head, base.mixed, batch_logits_, n, error))
@@ -577,7 +577,7 @@ bool Executor::MtpHeads(std::span<const MtpHeadItem> items,
         if (slot[i] < subset_rows)
           GatherDraftLogits(logits_of(i), items[i].session->mtp_.draft_ids,
                             static_cast<std::uint32_t>(prefix),
-                            speculative::kDraftVocabExtraRows, stream_);
+                            speculative_iq::kDraftVocabExtraRows, stream_);
       }
     } else if (subset_rows != 0) {
       float* staged = batch_logits_ + kBatchSessions * vocab -
@@ -598,7 +598,7 @@ bool Executor::MtpHeads(std::span<const MtpHeadItem> items,
                    logits_of(i) + prefix, 1, error))
           return false;
         MaskDraftLogits(logits_of(i) + prefix, session.mtp_.draft_ids,
-                        speculative::kDraftVocabExtraRows, stream_);
+                        speculative_iq::kDraftVocabExtraRows, stream_);
       }
     }
     if (subset_rows == 0 &&
@@ -618,7 +618,7 @@ bool Executor::MtpHeads(std::span<const MtpHeadItem> items,
         if (table != nullptr)
           RemapDraftIds(reinterpret_cast<std::uint32_t*>(s_.mtp_token), 1,
                         static_cast<std::uint32_t>(prefix), table,
-                        speculative::kDraftVocabExtraRows, stream_);
+                        speculative_iq::kDraftVocabExtraRows, stream_);
         if (!Check(hipMemcpyAsync(batch_candidates_host_[i].ids.data(),
                                   s_.mtp_token, 2 * sizeof(std::int32_t),
                                   hipMemcpyDeviceToHost, stream_),
@@ -631,7 +631,7 @@ bool Executor::MtpHeads(std::span<const MtpHeadItem> items,
       if (table != nullptr)
         RemapDraftIds(s_.mtp_ids, static_cast<std::uint32_t>(count),
                       static_cast<std::uint32_t>(prefix), table,
-                      speculative::kDraftVocabExtraRows, stream_);
+                      speculative_iq::kDraftVocabExtraRows, stream_);
       if (!Check(hipMemcpyAsync(batch_candidates_host_ + i, s_.mtp_ids,
                                 offsetof(MtpCandidateLogits, logits) +
                                     count * sizeof(float),
@@ -675,7 +675,7 @@ bool Executor::QuantizeBatch(const float* x, std::uint32_t rows,
   // Quantize once for all independent rows. The prefill staging allocation
   // is idle during batch decoding; borrow it without adding another buffer.
   const auto padded = (rows + kDecodeRows - 1) / kDecodeRows * kDecodeRows;
-  const auto bytes = qfn_mmq_q8_1_bytes(padded, cols);
+  const auto bytes = fniq_mmq_q8_1_bytes(padded, cols);
   if (bytes > Q8TiledBytes(options_.max_batch, model_->max_q8_cols()))
     return Fail(error, "batched projection exceeds activation scratch");
   void* quantized = s_.x_q8t;
@@ -683,11 +683,11 @@ bool Executor::QuantizeBatch(const float* x, std::uint32_t rows,
   if (padded != rows &&
       !Check(
           hipMemsetAsync(static_cast<std::uint8_t*>(quantized) +
-                             qfn_mmq_q8_1_bytes(rows, cols),
-                         0, qfn_mmq_q8_1_bytes(padded - rows, cols), stream_),
+                             fniq_mmq_q8_1_bytes(rows, cols),
+                         0, fniq_mmq_q8_1_bytes(padded - rows, cols), stream_),
           error))
     return false;
-  return qfn_mmq_quantize_q8_1(x, quantized, rows, cols, stream_) == 0 ||
+  return fniq_mmq_quantize_q8_1(x, quantized, rows, cols, stream_) == 0 ||
          Fail(error, "batched activation quantization failed");
 }
 
@@ -704,8 +704,8 @@ bool Executor::DenseBatch(const DeviceTensor& w, const float* x, float* out,
     return false;
   const auto project = [&](std::uint32_t first, std::uint32_t count) {
     const auto* input = static_cast<const std::uint8_t*>(s_.x_q8t) +
-                        qfn_mmq_q8_1_bytes(first, w.cols);
-    return qfn_mmq_q8_0_dense_vec_preq(
+                        fniq_mmq_q8_1_bytes(first, w.cols);
+    return fniq_mmq_q8_0_dense_vec_preq(
                w.data, nullptr, input,
                out + static_cast<std::size_t>(first) * w.rows, w.rows, count,
                w.cols, stream_) == 0 ||
@@ -746,8 +746,8 @@ bool Executor::GatedDenseBatch(const DeviceTensor& up, const DeviceTensor& gate,
     const auto n = std::min(kDecodeRows, rows - r);
     if (q8) {
       const auto* input = static_cast<const std::uint8_t*>(base.x_q8t) +
-                          qfn_mmq_q8_1_bytes(r, up.cols);
-      if (qfn_mmq_q8_0_dense_vec_preq(up.data, gate.data, input,
+                          fniq_mmq_q8_1_bytes(r, up.cols);
+      if (fniq_mmq_q8_0_dense_vec_preq(up.data, gate.data, input,
                                       out + std::size_t{r} * up.rows, up.rows,
                                       n, up.cols, stream_) != 0)
         return Fail(error, "batched gated Q8 projection failed");
@@ -786,11 +786,11 @@ bool Executor::MoeBatch(const DeviceLayer& l, const float* x, float* out,
     // Share expert weights across request boundaries while retaining the
     // scalar Q8 activation quantization and dot-product reduction.
     const bool gated =
-        qfn_mmq_moe_gated_vec(static_cast<int>(gate_type), l.ffn_gate_exps.data,
+        fniq_mmq_moe_gated_vec(static_cast<int>(gate_type), l.ffn_gate_exps.data,
                               l.ffn_up_exps.data, x, base.ids, base.gate_e,
                               c.expert_ff, c.hidden_size, rows, c.num_experts,
                               c.num_experts_used, stream_) == 0;
-    if (!gated || qfn_mmq_moe_vec(static_cast<int>(l.ffn_down_exps.type),
+    if (!gated || fniq_mmq_moe_vec(static_cast<int>(l.ffn_down_exps.type),
                                   l.ffn_down_exps.data, base.gate_e, base.ids,
                                   base.down_e, c.hidden_size, c.expert_ff,
                                   rows * c.num_experts_used, c.num_experts, 1,

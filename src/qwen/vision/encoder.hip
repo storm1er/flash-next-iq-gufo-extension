@@ -21,7 +21,7 @@
 #include "qwen/kernels/ops/gemm.hpp"
 #include "qwen/vision/encoder.hpp"
 
-namespace gufo::models::qwen::vision {
+namespace gufo::models::qwen_iq::vision {
 namespace {
 using Bf16 = hip_bfloat16;
 constexpr unsigned kHidden = 1152;
@@ -366,7 +366,7 @@ struct Encoder::Impl {
   std::unordered_map<std::string, Allocation> weights;
   hipStream_t stream{nullptr};
   hipblasHandle_t blas{nullptr};
-  std::unique_ptr<gufo::hip::HipblasLtGemm> lt;
+  std::unique_ptr<gufo::hip_iq::HipblasLtGemm> lt;
   bool uploaded{false};
 
   Impl(const std::filesystem::path& path, std::uint32_t width)
@@ -499,8 +499,8 @@ struct Encoder::Impl {
     if (blas == nullptr)
       CheckBlas(hipblasCreate(&blas));
     CheckBlas(hipblasSetStream(blas, stream));
-    lt = std::make_unique<gufo::hip::HipblasLtGemm>(
-        gufo::hip::HipblasLtGemmOptions{.ignore_environment = true});
+    lt = std::make_unique<gufo::hip_iq::HipblasLtGemm>(
+        gufo::hip_iq::HipblasLtGemmOptions{.ignore_environment = true});
     PinnedUpload upload(stream);
     for (const auto& tensor : reader->GetTensors()) {
       if (tensor.name == "v.patch_embd.weight" ||
@@ -770,4 +770,4 @@ std::shared_ptr<const Encoder::Embedding> Encoder::Encode(
           std::size_t{merged} * embedding->width_);
   return embedding;
 }
-}  // namespace gufo::models::qwen::vision
+}  // namespace gufo::models::qwen_iq::vision

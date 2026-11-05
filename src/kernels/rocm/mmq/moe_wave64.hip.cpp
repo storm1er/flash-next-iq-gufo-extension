@@ -1,7 +1,7 @@
 // Batched Q4_K/IQ3_S/IQ4_XS experts share one wave64 while retaining 32-lane
 // dot reductions.
-#include "qfn_mmq_prelude.h"
-namespace qfn_mmq {
+#include "fniq_mmq_prelude.h"
+namespace fniq_mmq {
 #include "mmvq.hpp"
 #include "unary.hpp"
 #include "vecdotq.hpp"
@@ -171,4 +171,4 @@ void mul_mat_vec_moe_batch_wave64(const void* gate, const void* up,
   }
 }
 
-}  // namespace qfn_mmq
+}  // namespace fniq_mmq

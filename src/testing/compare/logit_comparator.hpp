@@ -5,7 +5,7 @@
 #include <span>
 #include <string>
 
-namespace gufo::testing {
+namespace gufo::testing_iq {
 
 struct LogitCompareResult {
   bool match{true};
@@ -28,6 +28,6 @@ LogitCompareResult CompareLogits(std::span<const float> reference,
                                  std::span<const float> candidate,
                                  float atol = 1e-3F, float rtol = 1e-3F);
 
-}  // namespace gufo::testing
+}  // namespace gufo::testing_iq
 
 #endif  // GUFO_TESTING_COMPARE_LOGIT_COMPARATOR_HPP_

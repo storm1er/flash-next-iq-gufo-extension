@@ -38,7 +38,7 @@ std::vector<std::uint8_t> QwenFlashNextCompatibilityIdentity(
            << "tokenizer=embedded-in-artifact\n"
            << "chat_template=qwen38-reasoning-compiled-v3\n"
            << "chat_template_reference_sha256="
-           << tokenization::QwenChatTemplate::OfficialTemplateSha256() << '\n'
+           << tokenization_iq::QwenChatTemplate::OfficialTemplateSha256() << '\n'
            << "state_abi=qwen38-flash-next-rocm-session-v1\n"
            << "payload_layout=qfn-rocm-session-snapshot-v"
            << Session::kSnapshotPayloadVersion << '\n'

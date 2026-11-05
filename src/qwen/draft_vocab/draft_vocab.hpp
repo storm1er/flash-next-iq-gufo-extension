@@ -7,7 +7,7 @@
 #include <span>
 #include <vector>
 
-namespace gufo::speculative {
+namespace gufo::speculative_iq {
 
 /// Output rows a Qwen3.8 speculative draft head scores: the Flash-Next MTP
 /// head and the 27B DFlash2 block head. Over all 248,320 rows each draft row
@@ -126,6 +126,6 @@ private:
   std::optional<std::size_t> prior_miss_;  ///< the miss before last_miss_
 };
 
-}  // namespace gufo::speculative
+}  // namespace gufo::speculative_iq
 
 #endif

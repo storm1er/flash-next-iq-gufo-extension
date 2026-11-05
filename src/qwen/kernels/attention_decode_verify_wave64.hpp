@@ -7,7 +7,7 @@
 
 #include <cstdint>
 
-namespace gufo::hip::detail {
+namespace gufo::hip_iq::detail {
 
 // Split-K fp16 attention partials for verification rows > 1, packaged as
 // three wave64 per pair of KV heads. Requires num_heads == 6 * num_kv_heads,
@@ -20,7 +20,7 @@ void LaunchVerifySplitKAttentionHalfPartialsWave64(
     unsigned rows, std::uint32_t max_context, std::uint32_t num_heads,
     std::uint32_t num_kv_heads, std::uint32_t splits, hipStream_t stream);
 
-}  // namespace gufo::hip::detail
+}  // namespace gufo::hip_iq::detail
 #endif  // defined(ENGINE_ENABLE_HIP)
 
 #endif  // GUFO_MODELS_QWEN_HIP_KERNELS_ATTENTION_DECODE_VERIFY_WAVE64_HPP_

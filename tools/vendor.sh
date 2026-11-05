@@ -46,13 +46,19 @@ transform_tree() {
     -e 's|#include "src/testing/compare/|#include "testing/compare/|g' \
     -e 's/\bgufo::hip\b/gufo::hip_iq/g' \
     -e 's/(^|[^:[:alnum:]_])hip::/\1hip_iq::/g' \
+    -e 's/(^|[^:[:alnum:]_])detail::(Emit[A-Za-z0-9_]*|DispatchTelemetryEnabled|FindHipblasLtPlanRecord|LoadHipblasLtPlanDatabase|SaveHipblasLtPlanDatabase|InspectHipblasLtPlanDatabase|HipblasLtPlan[A-Za-z0-9_]*)/\1gufo::hip::detail::\2/g' \
+    -e 's/gufo::hip_iq::detail::(Emit[A-Za-z0-9_]*|DispatchTelemetryEnabled|FindHipblasLtPlanRecord|LoadHipblasLtPlanDatabase|SaveHipblasLtPlanDatabase|InspectHipblasLtPlanDatabase|HipblasLtPlan[A-Za-z0-9_]*)/gufo::hip::detail::\1/g' \
+    -e 's/(^|[^:[:alnum:]_])hip_iq::detail::(Emit[A-Za-z0-9_]*|DispatchTelemetryEnabled|FindHipblasLtPlanRecord|LoadHipblasLtPlanDatabase|SaveHipblasLtPlanDatabase|InspectHipblasLtPlanDatabase|HipblasLtPlan[A-Za-z0-9_]*)/\1gufo::hip::detail::\2/g' \
+    -e 's/hip_iq::(AllocateDevice|TransferStream|SnapshotTransfer|WeightUpload|WeightAllocator|HostAllocations|CopySnapshotToHost|CopySnapshotToDevice|CreateHipComponentCacheResources|ComponentCacheHooks)/hip::\1/g' \
     -e 's/\bgufo::tokenization\b/gufo::tokenization_iq/g' \
     -e 's/(^|[^:[:alnum:]_])tokenization::/\1tokenization_iq::/g' \
     -e 's/\bgufo::speculative\b/gufo::speculative_iq/g' \
     -e 's/(^|[^:[:alnum:]_])speculative::/\1speculative_iq::/g' \
+    -e 's/\bspeculative_iq::PromptLookup\b/speculative::PromptLookup/g' \
     -e 's/\bgufo::testing\b/gufo::testing_iq/g' \
     -e 's/(^|[^:[:alnum:]_])testing::/\1testing_iq::/g' \
     -e 's/\bgufo::models::qwen\b/gufo::models::qwen_iq/g' \
+    -e 's/\bmodels::qwen\b/models::qwen_iq/g' \
     -e 's/(^|[^:[:alnum:]_])qwen::/\1qwen_iq::/g' \
     -e 's/\bqfn_/fniq_/g' \
     $files

@@ -24,7 +24,7 @@
 #include <gufo/ext/gguf_reader.hpp>
 #include "qwen/control_tokens/control_tokens.hpp"
 
-namespace gufo::tokenization {
+namespace gufo::tokenization_iq {
 
 namespace {
 
@@ -810,4 +810,4 @@ bool QwenTokenizer::IsSpecialToken(TokenId id) const noexcept {
   return is_special_token_.contains(id);
 }
 
-}  // namespace gufo::tokenization
+}  // namespace gufo::tokenization_iq

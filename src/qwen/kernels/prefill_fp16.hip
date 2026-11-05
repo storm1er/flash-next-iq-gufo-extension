@@ -3,7 +3,7 @@
 
 #include "qwen/kernels/prefill_quant_gemm.hpp"
 #include "qwen/kernels/ops/prefill_fp16.hpp"
-namespace gufo::hip {
+namespace gufo::hip_iq {
 namespace {
 __device__ __forceinline__ __half
 RoundActivation(float value) {  // Keep the FP32 rounding boundary before the
@@ -139,7 +139,7 @@ template<gufo::core::GgmlType Type>
 __device__ __forceinline__ RawWeights<Type> LoadRaw(const void* row,
                                                     unsigned sub,
                                                     const uint4* header = nullptr) {
-  using namespace gufo::hip;
+  using namespace gufo::hip_iq;
   using gufo::core::GgmlType;
   RawWeights<Type> r{};
   r.sub = sub;
@@ -180,9 +180,9 @@ __device__ __forceinline__ RawWeights<Type> LoadRaw(const void* row,
   return r;
 }
 template<gufo::core::GgmlType Type>
-__device__ __forceinline__ gufo::hip::QuantSub16 DecodeRaw(
+__device__ __forceinline__ gufo::hip_iq::QuantSub16 DecodeRaw(
     const RawWeights<Type>& r) {
-  using namespace gufo::hip;
+  using namespace gufo::hip_iq;
   using gufo::core::GgmlType;
   QuantSub16 q;
   q.offset = 0;
@@ -305,8 +305,8 @@ __launch_bounds__(WM * WN * 32) __global__
   // Hoisted 64-bit row bases, clamped so an out-of-range row reads row m-1 and
   // is masked out at the store instead of branching in the K loop.
   const std::uint8_t* w_row[PFA];
-  const std::size_t row_bytes = gufo::hip::QuantRowBytes(Type, k);
-  const std::size_t up_row_bytes = gufo::hip::QuantRowBytes(UpType, k);
+  const std::size_t row_bytes = gufo::hip_iq::QuantRowBytes(Type, k);
+  const std::size_t up_row_bytes = gufo::hip_iq::QuantRowBytes(UpType, k);
 #pragma unroll
   for (int p = 0; p < PFA; ++p) {
     const int physical_row = ((p * kThreads) + tid) / BK;
@@ -366,8 +366,8 @@ __launch_bounds__(WM * WN * 32) __global__
         ra[p][0] = packed.low;
         ra[p][1] = packed.high;
       } else {
-        gufo::hip::QuantSub16 q;
-        gufo::hip::DecodeQuantSub16<true>(UpType, w_row[p], kk, q);
+        gufo::hip_iq::QuantSub16 q;
+        gufo::hip_iq::DecodeQuantSub16<true>(UpType, w_row[p], kk, q);
         union { v16bf f; uint4 u[2]; } packed;
 #pragma unroll
         for (int j = 0; j < 16; ++j)
@@ -405,8 +405,8 @@ __launch_bounds__(WM * WN * 32) __global__
           ra[p][1] = packed.high;
         }
         else {
-          gufo::hip::QuantSub16 q;
-          gufo::hip::DecodeQuantSub16<true>(Type, w_row[p], kk, q);
+          gufo::hip_iq::QuantSub16 q;
+          gufo::hip_iq::DecodeQuantSub16<true>(Type, w_row[p], kk, q);
           union {
             v16bf f;
             uint4 u[2];
@@ -447,7 +447,7 @@ __launch_bounds__(WM * WN * 32) __global__
   const auto commit_up = [&](int p, short* dst, int row) {
     if constexpr (Mixed) {
       if constexpr (UpRaw) {
-        gufo::hip::QuantSub16 q = DecodeRaw<UpType>(raw_up[p]);
+        gufo::hip_iq::QuantSub16 q = DecodeRaw<UpType>(raw_up[p]);
         union { v16bf f; uint4 u[2]; } packed;
 #pragma unroll
         for (int j = 0; j < 16; ++j)
@@ -473,7 +473,7 @@ __launch_bounds__(WM * WN * 32) __global__
         if (Mixed && row % 32 >= 16) {
           commit_up(p, dst, row);
         } else if constexpr (DecodeStage != 0) {
-          gufo::hip::QuantSub16 q = DecodeRaw<Type>(raw[p]);
+          gufo::hip_iq::QuantSub16 q = DecodeRaw<Type>(raw[p]);
           union {
             v16bf f;
             uint4 u[2];
@@ -891,5 +891,5 @@ bool TryLaunchBatchedDualQuantGEMMSwiGLUFp16(
   }
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif

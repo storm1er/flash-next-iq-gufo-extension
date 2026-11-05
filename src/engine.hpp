@@ -99,7 +99,7 @@ public:
   }
   [[nodiscard]] std::string ModelName() const;
   [[nodiscard]] const Config& config() const noexcept;
-  [[nodiscard]] const tokenization::QwenTokenizer& tokenizer() const noexcept {
+  [[nodiscard]] const tokenization_iq::QwenTokenizer& tokenizer() const noexcept {
     return *tokenizer_;
   }
   [[nodiscard]] std::size_t ResidentBytes() const noexcept;
@@ -110,7 +110,7 @@ public:
   /// Caps wide copy verification (Executor::LimitCopyRows); call before any
   /// session is created.
   void LimitCopyRows(std::uint32_t rows) noexcept;
-  [[nodiscard]] const std::shared_ptr<qwen::vision::Encoder>& VisionEncoder()
+  [[nodiscard]] const std::shared_ptr<qwen_iq::vision::Encoder>& VisionEncoder()
       const noexcept {
     return vision_;
   }
@@ -123,11 +123,11 @@ private:
   std::shared_ptr<core::GgufReader> mtp_reader_;
   std::unique_ptr<ModelWeights> weights_;
   std::unique_ptr<MtpWeights> mtp_weights_;
-  std::unique_ptr<tokenization::QwenTokenizer> tokenizer_;
+  std::unique_ptr<tokenization_iq::QwenTokenizer> tokenizer_;
   std::unique_ptr<NgramTable> ngram_;
   std::unique_ptr<rocm::DeviceModel> device_;
   std::unique_ptr<rocm::Executor> executor_;
-  std::shared_ptr<qwen::vision::Encoder> vision_;
+  std::shared_ptr<qwen_iq::vision::Encoder> vision_;
   MtpBatchController batch_policy_;
   /// MTP drafts may use the small head (draft_vocab.hpp).
   bool draft_subset_{false};
@@ -233,7 +233,7 @@ public:
   void SetCancellationCheck(std::function<bool()> check);
   [[nodiscard]] bool IsValid() const noexcept { return valid_; }
   [[nodiscard]] std::size_t AllocatedBytes() const noexcept;
-  void ConfigureVision(std::shared_ptr<const qwen::vision::Prompt> prompt);
+  void ConfigureVision(std::shared_ptr<const qwen_iq::vision::Prompt> prompt);
   /// A new request reusing cached context starts its own acceptance history.
   void ResetDraftPolicy();
 
@@ -369,13 +369,13 @@ private:
   /// Whole copies accepted in a row at copy_rows_ (two widen it).
   std::uint32_t copy_streak_{0};
   SpeculativeStats stats_;
-  std::shared_ptr<const qwen::vision::Prompt> image_prompt_;
+  std::shared_ptr<const qwen_iq::vision::Prompt> image_prompt_;
   [[nodiscard]] std::span<const std::uint8_t> ImageIdentity(
       std::size_t token_count) const;
   bool valid_{true};
   ContinuationHooks* continuation_hooks_{nullptr};
   /// This request's draft vocabulary; the device table follows it.
-  speculative::DraftVocab draft_vocab_;
+  speculative_iq::DraftVocab draft_vocab_;
   bool draft_vocab_stale_{false};
   std::vector<std::int32_t> draft_added_;
   /// After the token history is replaced: the table restarts from it.

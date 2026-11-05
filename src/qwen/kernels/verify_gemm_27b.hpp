@@ -7,7 +7,7 @@
 
 #include <gufo/ext/gguf_reader.hpp>
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 /// Qwen3.8-27B verification and DFlash2 draft projections at 2..8 rows:
 /// launch geometries measured faster on gfx1151 for the UD-Q4_K_XL target and
@@ -20,6 +20,6 @@ namespace gufo::hip {
                                          std::size_t batch, std::size_t m,
                                          std::size_t k, hipStream_t stream);
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 
 #endif  // GUFO_MODELS_QWEN_HIP_KERNELS_VERIFY_GEMM_27B_HPP_

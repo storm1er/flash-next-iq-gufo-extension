@@ -9,7 +9,7 @@
 #include <gufo/ext/gguf_reader.hpp>
 #include <gufo/ext/experimental/ggml_dequant.hpp>
 
-namespace gufo::models::qwen {
+namespace gufo::models::qwen_iq {
 
 enum class QwenGemmMode : std::uint8_t {
   kCpu,
@@ -243,6 +243,6 @@ struct QwenGemmResolution {
                                       : QwenGemmRoute::kHipBf16Baseline256};
 }
 
-}  // namespace gufo::models::qwen
+}  // namespace gufo::models::qwen_iq
 
 #endif  // GUFO_MODELS_QWEN_GEMM_ROUTE_HPP_

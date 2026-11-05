@@ -36,9 +36,13 @@ still resolve to the built-in provider.
 
 - Linux x86-64, AMD `gfx1151` (ROCm ≥ 6.4 toolchain with hipcc; tested with
   ROCm 7.15 / clang 23), HIP `gfx1151` support in Gufo ≥ 0.30.
-- **Focused selection builds only** (`-DGUFO_EXTENSIONS=flash_next_iq`). The
-  vendored Qwen family copies keep their original namespaces, so building this
-  extension together with the shipped Qwen models would duplicate symbols.
+- No link-time selection restrictions: the vendored family lives in
+  extension-private namespaces (`gufo::hip_iq`, `gufo::models::qwen_iq`,
+  `gufo::tokenization_iq`, `fniq_*` kernels), so this extension builds and
+  links with the shipped `qwen38_flash_next`/Qwen models in one binary
+  (verified: zero duplicate symbols). One caveat remains at file-claim time:
+  the built-in probe accepts any `qwen4exp` checkpoint, so an IQ-quantized
+  file must still reach this provider — see Limitations.
 
 ## Build
 
@@ -56,7 +60,9 @@ cmake --build --preset release --target gufo --parallel 4
 its source directory and provenance. For a Nix build, use the extension
 template flake shape (Gufo as a flake input, this repo passed via
 `GUFO_EXTENSION_DIRS` / `gufo.packages...override { extensions = [ ... ]; }`)
-with the same focused selection.
+with the same extension selection (any combination including
+`flash_next_iq` works; the vendored namespaces keep it separate from the
+in-tree Qwen models).
 
 ## Container image
 
@@ -87,7 +93,7 @@ versioned directory it points into instead, e.g.
 `render` (992) groups so `--group-add` names resolve; in
 `docker-compose.yml` the same keys work verbatim under
 `devices`/`group_add`/`ulimits`. To rebuild the image yourself, copy any
-focused-selection `gufo` build to `dist/gufo` and run
+`gufo` build containing this extension to `dist/gufo` and run
 `docker build -f docker/runtime.Dockerfile .`.
 
 ## Usage
@@ -135,12 +141,42 @@ built-in provider.
   dual projection, 128-row for down) via `Executor::RouteHints`.
 - IQ4_NL wide (128-row) down tiles go through the format-generic
   `RoutedF16GEMMKernel` rather than the specialized byte-block kernel.
-- Coexistence with the shipped `qwen38_flash_next`/Qwen family libraries in
-  one binary is not supported (vendored namespaces unchanged); see
-  Requirements.
+- Provider claiming in a combined binary: the built-in `qwen38_flash_next`
+  probe accepts any `qwen4exp` checkpoint, and text providers are matched in
+  registration order (in-tree first), so an IQ checkpoint built into the same
+  binary as the built-in currently lands on the built-in and fails with
+  "unsupported format IQ3_S". Until the upstream probe narrows to its
+  supported expert formats, load IQ checkpoints from a selection without
+  `qwen38_flash_next` (or an upstream-patched Gufo).
 - The vision encoder is inherited unchanged from 0.30.0 and was validated
   only as far as loading (`--mmproj`); image requests follow the built-in
   provider's path.
+
+## Vendoring
+
+`src/qwen/` and `src/testing/compare/` are copies of Gufo's private
+`src/families/qwen` and `src/testing/compare` (the extension sandbox cannot
+link those targets). They are **verbatim upstream after a mechanical
+transform**: includes rewritten to the extension API headers, and
+family-owned symbols renamed (`gufo::hip` → `gufo::hip_iq`,
+`gufo::models::qwen` → `gufo::models::qwen_iq`, `gufo::tokenization` →
+`gufo::tokenization_iq`, `gufo::speculative` → `gufo::speculative_iq`,
+`gufo::testing` → `gufo::testing_iq`, `qfn_` → `fniq_`). Core services the
+family calls into (dispatch telemetry, the hipBLASLt plan database, snapshot
+transfers, `gufo::speculative::PromptLookup`) stay in core namespaces.
+`tools/vendor.sh` owns the rules:
+
+```sh
+tools/vendor.sh check /path/to/gufo        # fail if src drifted
+tools/vendor.sh revendor /path/to/gufo <rev>  # sync + reapply the delta
+tools/vendor.sh regenerate /path/to/gufo   # re-record the delta from src
+```
+
+The pinned upstream revision is `.upstream-rev`; the (currently
+documentation-only) delta over upstream+transform is
+`tools/iq-family.patch`. Syncing to a new Gufo release is a pin bump plus
+`revendor`; any upstream change to the core services the family uses shows
+up as an ordinary compile error, never a silent misbind.
 
 ## License
 

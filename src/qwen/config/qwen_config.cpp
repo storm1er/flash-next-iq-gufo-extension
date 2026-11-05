@@ -6,7 +6,7 @@
 
 #include <gufo/ext/gguf_reader.hpp>
 
-namespace gufo::models::qwen {
+namespace gufo::models::qwen_iq {
 
 std::optional<core::ModelConfig> ExtractQwenConfig(
     const core::GgufReader& reader, std::string* error_msg) {
@@ -123,4 +123,4 @@ std::optional<core::ModelConfig> ExtractQwenConfig(
   return config;
 }
 
-}  // namespace gufo::models::qwen
+}  // namespace gufo::models::qwen_iq

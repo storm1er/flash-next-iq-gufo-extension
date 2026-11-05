@@ -25,7 +25,7 @@
 #include <gufo/ext/experimental/hip_utils.hpp>
 #include "qwen/kernels/ops/gemm.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 namespace {
 
@@ -125,7 +125,7 @@ struct HipblasLtPlan {
   return plan;
 }
 
-[[nodiscard]] detail::HipblasLtPlanDatabaseKey CurrentPlanDatabaseKey(
+[[nodiscard]] gufo::hip::detail::HipblasLtPlanDatabaseKey CurrentPlanDatabaseKey(
     hipblasLtHandle_t handle) {
   hipDeviceProp_t properties{};
   int device = 0;
@@ -152,15 +152,15 @@ struct HipblasLtPlan {
 }
 
 [[nodiscard]] std::string DatabaseLoadStatusName(
-    detail::HipblasLtPlanDatabaseLoadStatus status) {
+    gufo::hip::detail::HipblasLtPlanDatabaseLoadStatus status) {
   switch (status) {
-    case detail::HipblasLtPlanDatabaseLoadStatus::kLoaded:
+    case gufo::hip::detail::HipblasLtPlanDatabaseLoadStatus::kLoaded:
       return "loaded";
-    case detail::HipblasLtPlanDatabaseLoadStatus::kNotFound:
+    case gufo::hip::detail::HipblasLtPlanDatabaseLoadStatus::kNotFound:
       return "not_found";
-    case detail::HipblasLtPlanDatabaseLoadStatus::kInvalid:
+    case gufo::hip::detail::HipblasLtPlanDatabaseLoadStatus::kInvalid:
       return "invalid";
-    case detail::HipblasLtPlanDatabaseLoadStatus::kIncompatible:
+    case gufo::hip::detail::HipblasLtPlanDatabaseLoadStatus::kIncompatible:
       return "incompatible";
   }
   return "invalid";
@@ -168,7 +168,7 @@ struct HipblasLtPlan {
 
 [[nodiscard]] bool RestorePersistedAlgorithm(
     hipblasLtHandle_t handle, HipblasLtPlan& plan,
-    const detail::HipblasLtPlanRecord& record, std::size_t workspace_capacity,
+    const gufo::hip::detail::HipblasLtPlanRecord& record, std::size_t workspace_capacity,
     bool* solution_library_ready) {
   static_assert(std::is_trivially_copyable_v<hipblasLtMatmulAlgo_t>);
   if (record.algorithm_blob.size() != sizeof(hipblasLtMatmulAlgo_t)) {
@@ -284,7 +284,7 @@ struct HipblasLtPlan {
 
 [[nodiscard]] std::unique_ptr<HipblasLtPlan> CreateHipblasLtPlan(
     hipblasLtHandle_t handle, std::size_t batch_size, std::size_t m,
-    std::size_t k, const detail::HipblasLtPlanDatabase* database,
+    std::size_t k, const gufo::hip::detail::HipblasLtPlanDatabase* database,
     std::string_view database_status, std::size_t workspace_capacity,
     bool* solution_library_ready) {
   const auto start = std::chrono::steady_clock::now();
@@ -295,8 +295,8 @@ struct HipblasLtPlan {
   plan->persistent_cache_status = std::string(database_status);
 
   if (database != nullptr) {
-    const auto* record = detail::FindHipblasLtPlanRecord(
-        *database, batch_size, m, k, detail::HipblasLtPlanDataType::kBfloat16);
+    const auto* record = gufo::hip::detail::FindHipblasLtPlanRecord(
+        *database, batch_size, m, k, gufo::hip::detail::HipblasLtPlanDataType::kBfloat16);
     if (record != nullptr &&
         RestorePersistedAlgorithm(handle, *plan, *record, workspace_capacity,
                                   solution_library_ready)) {
@@ -335,8 +335,8 @@ struct HipblasLtGemm::Impl {
   hipblasLtHandle_t handle{nullptr};
   void* workspace{nullptr};
   std::size_t workspace_capacity{0};
-  detail::HipblasLtPlanDatabaseKey database_key;
-  detail::HipblasLtPlanDatabase database;
+  gufo::hip::detail::HipblasLtPlanDatabaseKey database_key;
+  gufo::hip::detail::HipblasLtPlanDatabase database;
   bool database_loaded{false};
   bool solution_library_ready{false};
   std::string database_status{"disabled"};
@@ -359,9 +359,9 @@ struct HipblasLtGemm::Impl {
     std::size_t requested_workspace = options.tuning_workspace_bytes;
     if (!database_path.empty() && !database_key.hardware_fingerprint.empty()) {
       auto loaded =
-          detail::LoadHipblasLtPlanDatabase(database_path, database_key);
+          gufo::hip::detail::LoadHipblasLtPlanDatabase(database_path, database_key);
       database_status = DatabaseLoadStatusName(loaded.status);
-      if (loaded.status == detail::HipblasLtPlanDatabaseLoadStatus::kLoaded) {
+      if (loaded.status == gufo::hip::detail::HipblasLtPlanDatabaseLoadStatus::kLoaded) {
         database = std::move(loaded.database);
         database_loaded = true;
         for (const auto& record : database.records) {
@@ -443,7 +443,7 @@ bool HipblasLtGemm::RunBf16(const void* a_bf16, const void* x_bf16, float* y,
     return false;
   }
 
-  if (dispatch_info != nullptr || detail::DispatchTelemetryEnabled()) {
+  if (dispatch_info != nullptr || gufo::hip::detail::DispatchTelemetryEnabled()) {
     const int algorithm_id =
         hipblaslt_ext::getIndexFromAlgo(lookup.plan->algorithm);
     if (dispatch_info != nullptr) {
@@ -458,7 +458,7 @@ bool HipblasLtGemm::RunBf16(const void* a_bf16, const void* x_bf16, float* y,
           .plan_cache_hit = lookup.cache_hit,
       };
     }
-    detail::EmitHipblasLtDispatch(
+    gufo::hip::detail::EmitHipblasLtDispatch(
         batch_size, m, k, algorithm_id, lookup.plan->solution_name,
         lookup.plan->kernel_name, lookup.plan->source,
         lookup.plan->persistent_cache_status, lookup.plan->workspace_bytes,
@@ -718,7 +718,7 @@ bool HipblasLtGemm::SavePlans(const std::string& path,
     return false;
   }
 
-  detail::HipblasLtPlanDatabase database{
+  gufo::hip::detail::HipblasLtPlanDatabase database{
       .key = impl_->database_key,
       .records = {},
   };
@@ -732,7 +732,7 @@ bool HipblasLtGemm::SavePlans(const std::string& path,
         .batch_size = plan->batch_size,
         .m = plan->m,
         .k = plan->k,
-        .data_type = detail::HipblasLtPlanDataType::kBfloat16,
+        .data_type = gufo::hip::detail::HipblasLtPlanDataType::kBfloat16,
         .algorithm_id = algorithm_id,
         .algorithm_blob = std::vector<std::uint8_t>(
             reinterpret_cast<const std::uint8_t*>(&plan->algorithm),
@@ -748,8 +748,8 @@ bool HipblasLtGemm::SavePlans(const std::string& path,
     return std::tie(left.batch_size, left.m, left.k) <
            std::tie(right.batch_size, right.m, right.k);
   });
-  return detail::SaveHipblasLtPlanDatabase(path, database, error);
+  return gufo::hip::detail::SaveHipblasLtPlanDatabase(path, database, error);
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

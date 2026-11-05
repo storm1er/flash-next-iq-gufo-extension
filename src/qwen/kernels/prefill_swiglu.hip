@@ -11,7 +11,7 @@
 #include "qwen/kernels/ops/swiglu.hpp"
 #include "qwen/hip_common/quant_ops.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 __global__ void BatchedSwiGLUActivationKernel(
     const float* __restrict__ gate, const float* __restrict__ up,
@@ -61,5 +61,5 @@ void LaunchPackedSwiGLUActivation(const float* gate_up, float* out,
       gate_up, gate_up + intermediate_size, out, nullptr, intermediate_size);
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

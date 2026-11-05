@@ -12,7 +12,7 @@
 
 #include <cmath>
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 // Shared quantized block layouts + quant row-dot helpers for the decode and
 // prefill GPU paths, matching the CPU oracles in ggml_dequant.cpp.
@@ -848,7 +848,7 @@ __device__ __forceinline__ float QuantWarpBlockDot(
   return sumf;
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 
 #endif  // defined(ENGINE_ENABLE_HIP)
 

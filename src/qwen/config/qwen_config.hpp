@@ -10,7 +10,7 @@ namespace gufo::core {
 class GgufReader;
 }  // namespace gufo::core
 
-namespace gufo::models::qwen {
+namespace gufo::models::qwen_iq {
 
 /// Extracts and validates the Qwen architectural configuration a GGUF file
 /// records under its architecture prefix (`qwen35.block_count`, `ssm.*`, ...).
@@ -23,6 +23,6 @@ namespace gufo::models::qwen {
 [[nodiscard]] std::optional<core::ModelConfig> ExtractQwenConfig(
     const core::GgufReader& reader, std::string* error_msg = nullptr);
 
-}  // namespace gufo::models::qwen
+}  // namespace gufo::models::qwen_iq
 
 #endif  // GUFO_FAMILIES_QWEN_CONFIG_QWEN_CONFIG_HPP_

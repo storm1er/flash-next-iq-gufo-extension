@@ -4,10 +4,10 @@
 # IQ4_XS-family support from the gufo-iq4_xs fork; src/qwen/ and
 # src/testing/compare/ are vendored copies of gufo's private family and test
 # libraries (MIT), rebuilt as extension-private targets because the external
-# sandbox does not link gufo_core/gufo_qwen_* targets. This extension must be
-# built with a focused selection (for example -DGUFO_EXTENSIONS=flash_next_iq)
-# so the in-tree flash-next model and the qwen family libraries are not
-# compiled alongside these copies.
+# sandbox does not link gufo_core/gufo_qwen_* targets. The vendored trees use
+# extension-private namespaces (gufo::hip_iq, gufo::models::qwen_iq, ...; see
+# tools/vendor.sh), so this extension coexists with the in-tree Qwen models
+# in a single binary.
 
 set(FNIQ "${GUFO_EXTENSION_BUILD_ROOT}/src")
 set(FNIQ_QWEN "${FNIQ}/qwen")
@@ -101,8 +101,8 @@ if (ENGINE_ENABLE_HIP)
 
   # Vendored GGML-derived MMQ/MoE kernels (same recipe as in-tree flash-next).
   set(FNIQ_MMQ_SOURCES
-    ${FNIQ_MMQ_DIR}/qfn_ggml_stubs.hip.cpp
-    ${FNIQ_MMQ_DIR}/qfn_mmq.hip.cpp
+    ${FNIQ_MMQ_DIR}/fniq_ggml_stubs.hip.cpp
+    ${FNIQ_MMQ_DIR}/fniq_mmq.hip.cpp
     ${FNIQ_MMQ_DIR}/mmid.hip.cpp
     ${FNIQ_MMQ_DIR}/mmvq.hip.cpp
     ${FNIQ_MMQ_DIR}/moe_wave64.hip.cpp

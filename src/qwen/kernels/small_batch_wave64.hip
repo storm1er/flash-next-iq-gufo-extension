@@ -4,7 +4,7 @@
 #include "qwen/kernels/ops/gemm.hpp"
 #include "qwen/kernels/ops/swiglu.hpp"
 
-namespace gufo::hip::detail {
+namespace gufo::hip_iq::detail {
 namespace {
 
 template<core::GgmlType Type>
@@ -602,9 +602,9 @@ bool TryLaunchKQuantSmallBatchWave64(core::GgmlType type, const void* w,
   }
 }
 
-}  // namespace gufo::hip::detail
+}  // namespace gufo::hip_iq::detail
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 bool TryLaunchPackedQuantSwiGLUFp32(core::GgmlType type, const void* gate_up,
                                     const float* input, float* output,
@@ -663,5 +663,5 @@ bool TryLaunchPackedQuantSwiGLUFp32(core::GgmlType type, const void* gate_up,
   return true;
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

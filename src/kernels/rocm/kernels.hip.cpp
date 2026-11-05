@@ -2456,7 +2456,7 @@ __global__ void PrepareAttentionKernel(
     __half* __restrict__ k_cache, __half* __restrict__ v_cache,
     std::uint32_t heads, std::uint32_t kv_heads, std::uint32_t d,
     std::uint32_t rotary, const std::uint32_t* start_pos, float theta,
-    float eps, const qwen::vision::DeviceRope* rope,
+    float eps, const qwen_iq::vision::DeviceRope* rope,
     [[maybe_unused]] YarnRope yarn) {
   __shared__ float partial[kHeadsPerBlock][8];
   __shared__ float norm[kHeadsPerBlock][256];
@@ -2515,7 +2515,7 @@ __global__ void PrepareAttentionKernel(
         theta, -2.0f * static_cast<float>(tid) / static_cast<float>(rotary));
     if constexpr (kYarn)
       freq = YarnFrequency(freq, tid, yarn);
-    sincosf(qwen::vision::RopePosition(rope, *start_pos + t, tid) * freq, &sine,
+    sincosf(qwen_iq::vision::RopePosition(rope, *start_pos + t, tid) * freq, &sine,
             &cosine);
     if constexpr (kYarn)
       YarnScale(sine, cosine, yarn);
@@ -2555,7 +2555,7 @@ template<bool kYarn>
 __global__ void RopeKernel(float* x, std::uint32_t heads, std::uint32_t d,
                            std::uint32_t rotary_dim,
                            const std::uint32_t* start_pos, float theta,
-                           const qwen::vision::DeviceRope* rope,
+                           const qwen_iq::vision::DeviceRope* rope,
                            [[maybe_unused]] YarnRope yarn) {
   const std::uint32_t t = blockIdx.x;
   const std::uint32_t half = rotary_dim / 2;
@@ -2569,7 +2569,7 @@ __global__ void RopeKernel(float* x, std::uint32_t heads, std::uint32_t d,
       freq = YarnFrequency(freq, i, yarn);
     float s = 0.0f;
     float c = 0.0f;
-    sincosf(qwen::vision::RopePosition(rope, *start_pos + t, i) * freq, &s, &c);
+    sincosf(qwen_iq::vision::RopePosition(rope, *start_pos + t, i) * freq, &s, &c);
     if constexpr (kYarn)
       YarnScale(s, c, yarn);
     const float a = v[i];
@@ -2617,7 +2617,7 @@ __global__ void PoolBlocksKernel(
     const std::uint32_t* first_block, const std::uint32_t* start_pos,
     std::uint32_t n_tokens, std::uint32_t ratio, std::uint32_t dim,
     std::uint32_t rotary_dim, float theta, float eps, std::uint32_t capacity,
-    const qwen::vision::DeviceRope* rope, [[maybe_unused]] YarnRope yarn) {
+    const qwen_iq::vision::DeviceRope* rope, [[maybe_unused]] YarnRope yarn) {
   __shared__ float v[256];
   __shared__ float shared[32];
   const std::uint32_t b = *first_block + blockIdx.x;
@@ -2649,7 +2649,7 @@ __global__ void PoolBlocksKernel(
       freq = YarnFrequency(freq, p, yarn);
     float s = 0.0f;
     float c = 0.0f;
-    sincosf(qwen::vision::RopePosition(rope, b * ratio, p) * freq, &s, &c);
+    sincosf(qwen_iq::vision::RopePosition(rope, b * ratio, p) * freq, &s, &c);
     if constexpr (kYarn)
       YarnScale(s, c, yarn);
     const float a = v[p];
@@ -2671,14 +2671,14 @@ template<bool kFrom, bool kTo>
 __global__ void RerotateKeysKernel(
     const __half* source, __half* destination, std::uint32_t first_row,
     std::uint32_t row_width, std::uint32_t head_dim, std::uint32_t rotary,
-    std::uint32_t pos_stride, float theta, const qwen::vision::DeviceRope* rope,
+    std::uint32_t pos_stride, float theta, const qwen_iq::vision::DeviceRope* rope,
     [[maybe_unused]] YarnRope from, [[maybe_unused]] YarnRope to) {
   const std::uint32_t r = blockIdx.x, h = blockIdx.y, p = threadIdx.x;
   const std::uint32_t half = rotary / 2;
   const float base =
       powf(theta, -2.0f * static_cast<float>(p) / static_cast<float>(rotary));
   const float position =
-      qwen::vision::RopePosition(rope, (first_row + r) * pos_stride, p);
+      qwen_iq::vision::RopePosition(rope, (first_row + r) * pos_stride, p);
   float fa = base, fb = base;
   if constexpr (kFrom)
     fa = YarnFrequency(base, p, from);
@@ -6648,7 +6648,7 @@ __global__ void RoutedScatterKernel(const std::int32_t* __restrict__ ids,
 }
 
 // A decode batch's mixer in one launch (HcMixQ8Fused). Its five kernels,
-// HcCombineKernel with Q8_1 rows, qfn_q8_hc_down_kernel, SiluScaleQ8Kernel,
+// HcCombineKernel with Q8_1 rows, fniq_q8_hc_down_kernel, SiluScaleQ8Kernel,
 // mul_mat_vec_q8 and HcMixEpilogueKernel<4>, each cost a replayed graph
 // ~1.9 us of idle gap. Here every phase is a list of items the running
 // blocks take from a counter, starting a phase once the previous one's
@@ -6835,7 +6835,7 @@ __launch_bounds__(kThreads) __global__
     FusedDone(&st->done[0]);
   }
 
-  // qfn_q8_hc_down_kernel<kTokens>: one row per wave, two iterations of
+  // fniq_q8_hc_down_kernel<kTokens>: one row per wave, two iterations of
   // loads ahead, the MMVQ products and FMA chain.
   for (unsigned tile;
        (tile = FusedTake(&st->taken[1], &item)) < kFusedDownTiles;) {
@@ -7814,7 +7814,7 @@ struct AttentionProjectionOutput {
   const std::uint32_t* position;
   float theta;
   float eps;
-  const qwen::vision::DeviceRope* rope;
+  const qwen_iq::vision::DeviceRope* rope;
   YarnRope yarn;
 };
 
@@ -8199,7 +8199,7 @@ __launch_bounds__(256) __global__ void DenseF16GEMMKernel(
             if constexpr (kYarn)
               freq = YarnFrequency(freq, lane_id, attention.yarn);
             float sn = 0.0F, cs = 0.0F;
-            sincosf(qwen::vision::RopePosition(
+            sincosf(qwen_iq::vision::RopePosition(
                         attention.rope, *attention.position + tok, lane_id) *
                         freq,
                     &sn, &cs);
@@ -8441,7 +8441,7 @@ bool AttentionF16Gemm(const void* weights, const __half* input,
                       float* gate, __half* keys, __half* values,
                       std::uint32_t n_tokens, const std::uint32_t* position,
                       float theta, float eps, hipStream_t stream,
-                      const qwen::vision::DeviceRope* rope,
+                      const qwen_iq::vision::DeviceRope* rope,
                       const YarnRope& yarn) {
   if (n_tokens == 0 || weights == nullptr || input == nullptr ||
       q_gamma == nullptr || k_gamma == nullptr || query == nullptr ||
@@ -8926,7 +8926,7 @@ bool PrepareAttention(const float* packed, std::uint32_t stride,
                       std::uint32_t kv_heads, std::uint32_t d,
                       std::uint32_t rotary_dim, const std::uint32_t* start_pos,
                       float theta, float eps, hipStream_t stream,
-                      const qwen::vision::DeviceRope* rope, bool prefill,
+                      const qwen_iq::vision::DeviceRope* rope, bool prefill,
                       const YarnRope& yarn) {
   if (d == 0 || d > 256 || rotary_dim == 0 || rotary_dim > d ||
       rotary_dim % 2 != 0 || kv_heads == 0 ||
@@ -8970,7 +8970,7 @@ bool PrepareAttention(const float* packed, std::uint32_t stride,
 void Rope(float* x, std::uint32_t n_tokens, std::uint32_t heads,
           std::uint32_t d, std::uint32_t rotary_dim,
           const std::uint32_t* start_pos, float theta, hipStream_t stream,
-          const qwen::vision::DeviceRope* rope, const YarnRope& yarn) {
+          const qwen_iq::vision::DeviceRope* rope, const YarnRope& yarn) {
   if (yarn.enabled != 0)
     hipLaunchKernelGGL(RopeKernel<true>, dim3(n_tokens), dim3(kThreads), 0,
                        stream, x, heads, d, rotary_dim, start_pos, theta, rope,
@@ -9001,7 +9001,7 @@ void PoolIndexerBlocks(const float* raw_keys, const float* gamma,
                        std::uint32_t grid_blocks, std::uint32_t ratio,
                        std::uint32_t dim, std::uint32_t rotary_dim, float theta,
                        float eps, std::uint32_t capacity, hipStream_t stream,
-                       const qwen::vision::DeviceRope* rope,
+                       const qwen_iq::vision::DeviceRope* rope,
                        const YarnRope& yarn) {
   if (grid_blocks == 0) {
     return;
@@ -9022,7 +9022,7 @@ void RerotateKeys(const __half* source, __half* destination,
                   std::uint32_t first_row, std::uint32_t n_rows,
                   std::uint32_t heads, std::uint32_t head_dim,
                   std::uint32_t rotary, std::uint32_t pos_stride, float theta,
-                  const qwen::vision::DeviceRope* rope, const YarnRope& from,
+                  const qwen_iq::vision::DeviceRope* rope, const YarnRope& from,
                   const YarnRope& to, hipStream_t stream) {
   if (n_rows == 0 || heads == 0 || rotary == 0) {
     return;

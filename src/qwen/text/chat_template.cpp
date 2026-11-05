@@ -21,7 +21,7 @@
 #include "qwen/control_tokens/control_tokens.hpp"
 #include "qwen/text/tokenizer.hpp"
 
-namespace gufo::tokenization {
+namespace gufo::tokenization_iq {
 
 std::size_t RenderedPromptBoundBytes(std::uint32_t context_tokens) noexcept {
   constexpr std::size_t kFloor = 1024ULL * 1024ULL;
@@ -85,7 +85,7 @@ bool IsQwen38Artifact(const core::GgufReader& reader) {
   if (name.has_value() && name->find("Qwen3.8") != std::string_view::npos) {
     return true;
   }
-  const auto config = models::qwen::ExtractQwenConfig(reader);
+  const auto config = models::qwen_iq::ExtractQwenConfig(reader);
   return config.has_value() && config->num_layers == 64 &&
          config->hidden_size == 5120 && config->vocab_size == 248320;
 }
@@ -936,4 +936,4 @@ std::optional<std::vector<TokenId>> QwenChatTemplate::RenderAndTokenize(
                         content_spans, tok_opts);
 }
 
-}  // namespace gufo::tokenization
+}  // namespace gufo::tokenization_iq

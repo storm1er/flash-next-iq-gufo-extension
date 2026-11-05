@@ -1,7 +1,7 @@
 #include "qwen/kernels/small_batch_gemm.hpp"
 #include "qwen/kernels/verify_gemm_27b.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 namespace {
 
 using core::GgmlType;
@@ -319,4 +319,4 @@ bool TryLaunchVerifyGemm27(GgmlType type, const void* w, const float* x,
   }
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq

@@ -11,7 +11,7 @@
 
 #include <gufo/ext/image.hpp>
 
-namespace gufo::models::qwen::vision {
+namespace gufo::models::qwen_iq::vision {
 
 /// Shared Qwen3.8 ViT operator graph. Each model supplies and validates its
 /// own projector/output width; language-model state never lives here.
@@ -63,5 +63,5 @@ private:
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace gufo::models::qwen::vision
+}  // namespace gufo::models::qwen_iq::vision
 #endif

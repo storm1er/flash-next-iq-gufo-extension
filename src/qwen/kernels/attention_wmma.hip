@@ -69,7 +69,7 @@
 #include "qwen/hip_common/attention_policy.hpp"
 #include "qwen/kernels/ops/attention.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 // Defined in kernels/attention_tile.hip; the WMMA route reuses the same FP16
 // cache and the same pack/sync pair unchanged.
@@ -736,5 +736,5 @@ bool LaunchQwenWmmaAttention(
   return true;
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

@@ -11,7 +11,7 @@
 #include <gufo/ext/image.hpp>
 #include "qwen/text/chat_template.hpp"
 
-namespace gufo::models::qwen::vision {
+namespace gufo::models::qwen_iq::vision {
 
 class ImageCache;
 
@@ -49,7 +49,7 @@ struct PreparedImage {
 };
 
 struct Prompt {
-  std::vector<tokenization::TokenId> tokens;
+  std::vector<tokenization_iq::TokenId> tokens;
   /// Frontier unchanged when an interrupted assistant is followed by a user.
   std::size_t stable_prefix_tokens{0};
   RopeLayout rope;
@@ -65,14 +65,14 @@ struct Prompt {
 /// most 16 x 16 merged tokens, unless the model's minimum size is larger. It
 /// never exceeds the `kAuto` size. `kAuto` uses the model's full range.
 [[nodiscard]] core::Image ResizeImage(
-    const core::Image& image, tokenization::ChatMessage::ImageDetail detail);
+    const core::Image& image, tokenization_iq::ChatMessage::ImageDetail detail);
 [[nodiscard]] Prompt Prepare(
-    const tokenization::QwenTokenizer& tokenizer,
-    std::span<const tokenization::ChatMessage> messages,
-    std::span<const tokenization::ChatTool> tools,
-    const tokenization::ChatTemplateOptions& options,
+    const tokenization_iq::QwenTokenizer& tokenizer,
+    std::span<const tokenization_iq::ChatMessage> messages,
+    std::span<const tokenization_iq::ChatTool> tools,
+    const tokenization_iq::ChatTemplateOptions& options,
     std::string_view encoder_identity, std::uint32_t max_context,
     ImageCache* image_cache = nullptr);
 
-}  // namespace gufo::models::qwen::vision
+}  // namespace gufo::models::qwen_iq::vision
 #endif

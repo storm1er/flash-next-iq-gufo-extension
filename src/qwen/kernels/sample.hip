@@ -12,7 +12,7 @@
 #include <gufo/ext/experimental/hip_utils.hpp>
 #include "qwen/kernels/ops/token.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 namespace {
 
 constexpr std::size_t kSamplingThreads = 256;
@@ -1428,5 +1428,5 @@ void LaunchGPUSpeculativeSampling(
       residual_uniform);
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif

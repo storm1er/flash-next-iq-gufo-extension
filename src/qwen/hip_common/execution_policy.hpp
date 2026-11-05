@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 enum class QwenKvCacheStorage : std::uint8_t {
   kFp32,
@@ -176,6 +176,6 @@ constexpr QwenGraphRejection& operator|=(QwenGraphRejection& lhs,
   return rejected;
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 
 #endif  // GUFO_MODELS_QWEN_HIP_EXECUTION_POLICY_HPP_

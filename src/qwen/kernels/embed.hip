@@ -10,7 +10,7 @@
 #include "qwen/kernels/ops/token.hpp"
 #include "qwen/hip_common/quant_ops.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 __global__ void EmbeddingLookupKernel(const void* __restrict__ table,
                                       core::GgmlType type,
@@ -100,5 +100,5 @@ void LaunchEmbeddingLookup(const void* table, core::GgmlType type,
       table, type, d_token_id, out_hidden, hidden_size);
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif

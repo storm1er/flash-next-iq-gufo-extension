@@ -15,7 +15,7 @@
 #include "qwen/kernels/ops/attention.hpp"
 #include "qwen/kernels/ops/gemm.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 __global__ void WriteBatchedKVCacheKernel(
     const float* __restrict__ k, const float* __restrict__ v,
@@ -468,5 +468,5 @@ void LaunchBatchedAttentionGemm(
   }
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

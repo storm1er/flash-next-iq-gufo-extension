@@ -12,7 +12,7 @@
 #include <gufo/ext/image.hpp>
 #include "qwen/text/chat_template.hpp"
 
-namespace gufo::models::qwen::vision {
+namespace gufo::models::qwen_iq::vision {
 
 inline constexpr std::string_view kImagePreprocessingVersion =
     "qwen38-image-bicubic-rgb8-bf16-v1";
@@ -41,13 +41,13 @@ public:
 
   [[nodiscard]] std::shared_ptr<const core::Image> Get(
       const std::shared_ptr<const std::vector<std::uint8_t>>& encoded,
-      tokenization::ChatMessage::ImageDetail detail);
+      tokenization_iq::ChatMessage::ImageDetail detail);
   [[nodiscard]] Stats GetStats() const;
 
 private:
   struct Entry {
     std::size_t key;
-    tokenization::ChatMessage::ImageDetail detail;
+    tokenization_iq::ChatMessage::ImageDetail detail;
     // Exact comparison makes lookup-hash collisions harmless. Including these
     // bytes in the budget bounds reuse even for poorly compressible uploads.
     std::shared_ptr<const std::vector<std::uint8_t>> encoded;
@@ -60,5 +60,5 @@ private:
   Stats stats_;
 };
 
-}  // namespace gufo::models::qwen::vision
+}  // namespace gufo::models::qwen_iq::vision
 #endif

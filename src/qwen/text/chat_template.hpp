@@ -16,7 +16,7 @@
 #include <gufo/ext/reasoning.hpp>
 #include "qwen/text/tokenizer.hpp"
 
-namespace gufo::tokenization {
+namespace gufo::tokenization_iq {
 
 using ChatRole = ext::ChatRole;
 using ChatImageInput = ext::ChatImageInput;
@@ -235,6 +235,6 @@ private:
   Profile profile_{Profile::kLegacyChatMl};
 };
 
-}  // namespace gufo::tokenization
+}  // namespace gufo::tokenization_iq
 
 #endif  // GUFO_TOKENIZATION_QWEN_CHAT_TEMPLATE_HPP_

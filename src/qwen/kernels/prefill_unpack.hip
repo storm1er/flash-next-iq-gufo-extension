@@ -11,7 +11,7 @@
 #include "qwen/kernels/ops/token.hpp"
 #include "qwen/hip_common/quant_ops.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 __global__ void BatchedUnpackQGKernel(const float* __restrict__ qg,
                                       float* __restrict__ q_out,
@@ -50,5 +50,5 @@ void LaunchBatchedUnpackQG(const float* qg_interleaved, float* q_out,
                           stream>>>(qg_interleaved, q_out, gate_out, batch_size,
                                     num_heads, head_dim);
 }
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

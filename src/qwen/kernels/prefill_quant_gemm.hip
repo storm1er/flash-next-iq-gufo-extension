@@ -1,7 +1,7 @@
 #if defined(ENGINE_ENABLE_HIP)
 #include "qwen/kernels/prefill_quant_gemm.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 template<bool StoreActivationSum, typename T>
 __global__ void QuantizeActivationToQ8_1Kernel(const T* __restrict__ x,
@@ -1847,7 +1847,7 @@ void LaunchBatchedQuantGEMMFp32(core::GgmlType type, const void* w,
   const std::size_t num_blocks_x = (m + kWarpsPerBlock - 1) / kWarpsPerBlock;
   // opt-q4kxl: K-quant/IQ formats share one weight stream across the whole
   // draft block instead of re-reading it per token.
-  if (::gufo::hip::detail::IsNativeWmmaQuant(type) && batch <= 8) {
+  if (::gufo::hip_iq::detail::IsNativeWmmaQuant(type) && batch <= 8) {
     // Exact width instantiations: a padded Batch would stage and multiply
     // activations that no output consumes.
     constexpr std::size_t kKWarpsPerBlock = kKQuantSmallBatchWarps;
@@ -1996,5 +1996,5 @@ void LaunchBatchedQuantGEMMFp32(core::GgmlType type, const void* w,
       <<<grid, block, 0, stream>>>(type, w, fp32_x, y, m, k);
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

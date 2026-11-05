@@ -8,7 +8,7 @@
 #if defined(ENGINE_ENABLE_HIP)
 #include <hip/hip_runtime.h>
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 /// Computes Fused SwiGLU GEMV: out = SiLU(W_gate * x) * (W_up * x)
 void LaunchFusedSwiGLUGEMV(const void* gate_w, core::GgmlType gate_type,
@@ -40,7 +40,7 @@ bool TryLaunchPackedQuantSwiGLUFp32(core::GgmlType type, const void* gate_up,
                                     std::size_t hidden_size,
                                     hipStream_t stream = nullptr);
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 
 #endif  // defined(ENGINE_ENABLE_HIP)
 

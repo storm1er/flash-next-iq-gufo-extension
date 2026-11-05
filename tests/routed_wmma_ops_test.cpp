@@ -14,7 +14,7 @@
 
 #include <gufo/ext/experimental/ggml_dequant.hpp>
 #include "kernels/rocm/kernels.hpp"
-#include "kernels/rocm/mmq/qfn_mmq.h"
+#include "kernels/rocm/mmq/fniq_mmq.h"
 
 namespace q = gufo::models::flash_next_iq::rocm;
 namespace {
@@ -370,13 +370,13 @@ Result Run(q::WeightType type, std::size_t n_tokens, std::size_t used,
   std::vector<float> zero_out(slots * m, 0.0F);
   float* d_mmq = Upload(zero_out);
 
-  const auto mmq_raw = type == q::WeightType::kQ4_K     ? qfn_mmq_q4_K_moe_raw
-                       : type == q::WeightType::kQ5_K   ? qfn_mmq_q5_K_moe_raw
-                       : type == q::WeightType::kQ5_1   ? qfn_mmq_q5_1_moe_raw
-                       : type == q::WeightType::kIQ3_S  ? qfn_mmq_iq3_s_moe_raw
-                       : type == q::WeightType::kIQ4_XS ? qfn_mmq_iq4_xs_moe_raw
-                       : type == q::WeightType::kIQ4_NL ? qfn_mmq_iq4_nl_moe_raw
-                                                        : qfn_mmq_q8_0_moe_raw;
+  const auto mmq_raw = type == q::WeightType::kQ4_K     ? fniq_mmq_q4_K_moe_raw
+                       : type == q::WeightType::kQ5_K   ? fniq_mmq_q5_K_moe_raw
+                       : type == q::WeightType::kQ5_1   ? fniq_mmq_q5_1_moe_raw
+                       : type == q::WeightType::kIQ3_S  ? fniq_mmq_iq3_s_moe_raw
+                       : type == q::WeightType::kIQ4_XS ? fniq_mmq_iq4_xs_moe_raw
+                       : type == q::WeightType::kIQ4_NL ? fniq_mmq_iq4_nl_moe_raw
+                                                        : fniq_mmq_q8_0_moe_raw;
   const int rc =
       mmq_raw(d_w, d_x, d_ids, d_mmq, static_cast<int>(m), static_cast<int>(k),
               static_cast<int>(n_tokens), static_cast<int>(experts),
@@ -673,7 +673,7 @@ void ReportVectorAccuracy() {
         auto* dx = Upload(x);
         auto* di = Upload(ids);
         auto* dout = Upload(std::vector<float>(ids.size() * rows, 0.0F));
-        if (qfn_mmq_moe_vec(static_cast<int>(type), dw, dx, di, dout, rows,
+        if (fniq_mmq_moe_vec(static_cast<int>(type), dw, dx, di, dout, rows,
                             cols, n, experts, used, nullptr))
           throw std::runtime_error("vector accuracy launch failed");
         const auto out = Download(dout, ids.size() * rows);
@@ -796,7 +796,7 @@ void CheckVectorGrouping(bool down = false) {
                          hipMemcpyHostToDevice),
                "poison scalar output");
       for (int t = 0; t < tokens; ++t)
-        if (qfn_mmq_moe_vec(static_cast<int>(formats[f]), w, dx + t * cols,
+        if (fniq_mmq_moe_vec(static_cast<int>(formats[f]), w, dx + t * cols,
                             di + t * used, scalar + guard + t * used * rows,
                             rows, cols, 1, experts, used, nullptr))
           throw std::runtime_error("scalar routed vector launch failed");
@@ -804,7 +804,7 @@ void CheckVectorGrouping(bool down = false) {
       CheckHip(hipMemcpy(paired_scalar, dirty.data(),
                          dirty.size() * sizeof(float), hipMemcpyHostToDevice),
                "poison paired reference");
-      if (qfn_mmq_moe_vec(static_cast<int>(formats[f]), wb, dx, di,
+      if (fniq_mmq_moe_vec(static_cast<int>(formats[f]), wb, dx, di,
                           paired_scalar + guard, rows, cols, tokens, experts,
                           used, nullptr))
         throw std::runtime_error("paired reference projection failed");
@@ -817,7 +817,7 @@ void CheckVectorGrouping(bool down = false) {
         CheckHip(hipMemcpy(batch, dirty.data(), dirty.size() * sizeof(float),
                            hipMemcpyHostToDevice),
                  "poison batched output");
-        if (qfn_mmq_moe_vec(static_cast<int>(formats[f]), w, dx, di,
+        if (fniq_mmq_moe_vec(static_cast<int>(formats[f]), w, dx, di,
                             batch + guard, rows, cols, n, experts, used,
                             nullptr))
           throw std::runtime_error("batched routed vector launch failed");
@@ -835,7 +835,7 @@ void CheckVectorGrouping(bool down = false) {
         CheckHip(hipMemcpy(paired_batch, dirty.data(),
                            dirty.size() * sizeof(float), hipMemcpyHostToDevice),
                  "poison paired up");
-        if (qfn_mmq_moe_vec(static_cast<int>(formats[f]), w, dx, di,
+        if (fniq_mmq_moe_vec(static_cast<int>(formats[f]), w, dx, di,
                             batch + guard, rows, cols, n, experts, used,
                             nullptr, wb, paired_batch + guard))
           throw std::runtime_error("paired vector projection failed");
@@ -863,7 +863,7 @@ void CheckVectorGrouping(bool down = false) {
           CheckHip(hipMemcpy(batch, dirty.data(), dirty.size() * sizeof(float),
                              hipMemcpyHostToDevice),
                    "poison gated output");
-          if (qfn_mmq_moe_gated_vec(static_cast<int>(formats[f]), w, wb, dx, di,
+          if (fniq_mmq_moe_gated_vec(static_cast<int>(formats[f]), w, wb, dx, di,
                                     batch + guard, rows, cols, n, experts, used,
                                     nullptr))
             throw std::runtime_error("gated vector launch failed");
@@ -921,11 +921,11 @@ void CheckPairedMmq() {
   auto* rb = Upload(zeros);
   auto* pa = Upload(zeros);
   auto* pb = Upload(zeros);
-  if (qfn_mmq_q4_K_moe_raw(wa, dx, di, ra, rows, cols, tokens, experts, used,
+  if (fniq_mmq_q4_K_moe_raw(wa, dx, di, ra, rows, cols, tokens, experts, used,
                            nullptr) ||
-      qfn_mmq_q4_K_moe_raw(wb, dx, di, rb, rows, cols, tokens, experts, used,
+      fniq_mmq_q4_K_moe_raw(wb, dx, di, rb, rows, cols, tokens, experts, used,
                            nullptr) ||
-      qfn_mmq_q4_K_moe_pair_unique(wa, wb, dx, di, pa, pb, rows, cols, tokens,
+      fniq_mmq_q4_K_moe_pair_unique(wa, wb, dx, di, pa, pb, rows, cols, tokens,
                                    experts, used, nullptr)) {
     throw std::runtime_error("paired MMQ launch failed");
   }
@@ -971,14 +971,14 @@ void CheckGatedDecodeShape() {
     auto* single = Upload(std::vector<float>(count, 0.0F));
     auto* batch = Upload(std::vector<float>(count, 0.0F));
     for (int t = 0; t < tokens; ++t)
-      if (qfn_mmq_moe_gated_vec(static_cast<int>(type), wa, wb, dx + t * cols,
+      if (fniq_mmq_moe_gated_vec(static_cast<int>(type), wa, wb, dx + t * cols,
                                 di + t * used,
                                 single + std::size_t{t} * used * rows, rows,
                                 cols, 1, experts, used, nullptr))
         throw std::runtime_error("single-token gated launch failed");
     const auto reference = Download(single, count);
     for (int n = 2; n <= tokens; ++n) {
-      if (qfn_mmq_moe_gated_vec(static_cast<int>(type), wa, wb, dx, di, batch,
+      if (fniq_mmq_moe_gated_vec(static_cast<int>(type), wa, wb, dx, di, batch,
                                 rows, cols, n, experts, used, nullptr))
         throw std::runtime_error("multi-token gated launch failed");
       const auto out = Download(batch, count);

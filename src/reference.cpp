@@ -316,7 +316,7 @@ void ReferenceModel::LinearAttention(const LayerWeights& l, LinearState& s,
 void ReferenceModel::Attention(const LayerWeights& l, AttentionState& s,
                                std::span<const float> x, std::uint32_t pos,
                                std::span<float> out,
-                               const qwen::vision::RopeLayout* layout) {
+                               const qwen_iq::vision::RopeLayout* layout) {
   const std::uint32_t hd = c_.head_dim;
   const std::uint32_t nh = c_.num_heads;
   const std::uint32_t nkv = c_.num_kv_heads;
@@ -622,7 +622,7 @@ bool ReferenceModel::Step(std::int32_t token, std::span<float> logits,
 bool ReferenceModel::MtpStep(const MtpWeights& mtp, std::int32_t token,
                              std::span<const float> hidden,
                              std::span<float> logits, MtpTrace* trace,
-                             const qwen::vision::RopeLayout* rope,
+                             const qwen_iq::vision::RopeLayout* rope,
                              std::string* error_msg,
                              const MtpTrace* stage_inputs) {
   const auto H = c_.hidden_size, D = c_.HcDim();

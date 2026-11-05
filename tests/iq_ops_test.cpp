@@ -18,7 +18,7 @@
 #include <gufo/ext/gguf_reader.hpp>
 #include <gufo/ext/experimental/ggml_dequant.hpp>
 #include "kernels/rocm/kernels.hpp"
-#include "kernels/rocm/mmq/qfn_mmq.h"
+#include "kernels/rocm/mmq/fniq_mmq.h"
 
 namespace q = gufo::models::flash_next_iq::rocm;
 using gufo::core::GgmlType;
@@ -185,9 +185,9 @@ void CheckRouted(const Format& f, int rows, int cols, int tokens, int used) {
   for (int t = 0; t < tokens; ++t) {
     const std::size_t o = static_cast<std::size_t>(t) * used * rows;
     Expect(
-        !qfn_mmq_moe_vec(type, wa, dx + t * cols, di + t * used, single_a + o,
+        !fniq_mmq_moe_vec(type, wa, dx + t * cols, di + t * used, single_a + o,
                          rows, cols, 1, experts, used, nullptr) &&
-            !qfn_mmq_moe_vec(type, wb, dx + t * cols, di + t * used,
+            !fniq_mmq_moe_vec(type, wb, dx + t * cols, di + t * used,
                              single_b + o, rows, cols, 1, experts, used,
                              nullptr),
         tag + ": single-row vector launch failed");
@@ -205,7 +205,7 @@ void CheckRouted(const Format& f, int rows, int cols, int tokens, int used) {
     if (n > tokens)
       break;
     const std::size_t bytes = static_cast<std::size_t>(n) * used * rows * 4;
-    Expect(!qfn_mmq_moe_vec(type, wa, dx, di, out, rows, cols, n, experts, used,
+    Expect(!fniq_mmq_moe_vec(type, wa, dx, di, out, rows, cols, n, experts, used,
                             nullptr, wb, out_b),
            tag + ": batched vector launch failed");
     Expect(
@@ -227,7 +227,7 @@ void CheckRouted(const Format& f, int rows, int cols, int tokens, int used) {
   for (int n : gated_widths) {
     if (n > tokens)
       break;
-    Expect(!qfn_mmq_moe_gated_vec(type, wa, wb, dx, di, out, rows, cols, n,
+    Expect(!fniq_mmq_moe_gated_vec(type, wa, wb, dx, di, out, rows, cols, n,
                                   experts, used, nullptr),
            tag + ": gated vector launch failed");
     Expect(!std::memcmp(Download(out, count).data(), swiglu.data(),
@@ -239,9 +239,9 @@ void CheckRouted(const Format& f, int rows, int cols, int tokens, int used) {
   // Tiled MMQ (prefill fallback).
   using Raw = int (*)(const void*, const float*, const std::int32_t*, float*,
                       int, int, int, int, int, hipStream_t);
-  const Raw raw = f.type == GgmlType::kIQ3_S    ? qfn_mmq_iq3_s_moe_raw
-                  : f.type == GgmlType::kIQ4_NL ? qfn_mmq_iq4_nl_moe_raw
-                                                : qfn_mmq_iq4_xs_moe_raw;
+  const Raw raw = f.type == GgmlType::kIQ3_S    ? fniq_mmq_iq3_s_moe_raw
+                  : f.type == GgmlType::kIQ4_NL ? fniq_mmq_iq4_nl_moe_raw
+                                                : fniq_mmq_iq4_xs_moe_raw;
   CheckHip(hipMemset(out, 0, count * sizeof(float)), "clear MMQ output");
   Expect(!raw(wa, dx, di, out, rows, cols, tokens, experts, used, nullptr),
          tag + ": tiled MMQ launch failed");
@@ -279,16 +279,16 @@ void CheckQ6KHead(int rows, int cols) {
   auto* dw = Upload(w.packed);
   auto* dx = Upload(x);
   void* xq = nullptr;
-  CheckHip(hipMalloc(&xq, qfn_mmq_q8_1_bytes(tokens, cols)), "hipMalloc");
-  Expect(!qfn_mmq_quantize_q8_1(dx, xq, tokens, cols, nullptr),
+  CheckHip(hipMalloc(&xq, fniq_mmq_q8_1_bytes(tokens, cols)), "hipMalloc");
+  Expect(!fniq_mmq_quantize_q8_1(dx, xq, tokens, cols, nullptr),
          tag + ": quantize failed");
-  const std::size_t row_q8 = qfn_mmq_q8_1_bytes(1, cols);
+  const std::size_t row_q8 = fniq_mmq_q8_1_bytes(1, cols);
   const std::vector<float> zeros(static_cast<std::size_t>(tokens) * rows);
   auto* single = Upload(zeros);
   auto* out = Upload(zeros);
   const int type = static_cast<int>(kQ6_K.type);
   for (int t = 0; t < tokens; ++t)
-    Expect(!qfn_mmq_dense_vec_preq(
+    Expect(!fniq_mmq_dense_vec_preq(
                type, dw, static_cast<const std::uint8_t*>(xq) + t * row_q8,
                single + static_cast<std::size_t>(t) * rows, rows, 1, cols,
                nullptr),
@@ -297,7 +297,7 @@ void CheckQ6KHead(int rows, int cols) {
   const double error = RelativeError(decode, ref);
   Expect(error < 1e-2, tag + ": error " + std::to_string(error));
   for (int n = 2; n <= tokens; ++n) {
-    Expect(!qfn_mmq_dense_vec_preq(type, dw, xq, out, rows, n, cols, nullptr),
+    Expect(!fniq_mmq_dense_vec_preq(type, dw, xq, out, rows, n, cols, nullptr),
            tag + ": batched launch failed");
     Expect(!std::memcmp(Download(out, zeros.size()).data(), decode.data(),
                         static_cast<std::size_t>(n) * rows * 4),
@@ -313,8 +313,8 @@ void CheckQ6KHead(int rows, int cols) {
 
 int main() {
   try {
-    if (qfn_mmq_init(0) != 0)
-      throw std::runtime_error("qfn_mmq_init failed");
+    if (fniq_mmq_init(0) != 0)
+      throw std::runtime_error("fniq_mmq_init failed");
     // Gate/up view (top-k slots), with a ragged row count.
     for (int rows : {64, 65}) {
       CheckRouted(kIQ3_S, rows, 2560, 33, 3);

@@ -12,7 +12,7 @@
 #include "qwen/vision/encoder.hpp"
 #include "qwen/vision/prompt.hpp"
 
-namespace gufo::models::qwen::vision {
+namespace gufo::models::qwen_iq::vision {
 
 /// Per-session image inputs. The stable device descriptor lets captured
 /// decode graphs follow a new request without capturing its image pointers.
@@ -52,8 +52,8 @@ public:
   }
 
 private:
-  friend class models::qwen::ContinuationAdapter;
-  models::qwen::ContinuationHooks* continuation_hooks_{nullptr};
+  friend class models::qwen_iq::ContinuationAdapter;
+  models::qwen_iq::ContinuationHooks* continuation_hooks_{nullptr};
   RopeLayout layout_;
   std::shared_ptr<const Prompt> prompt_;
   std::shared_ptr<Encoder> encoder_;
@@ -64,5 +64,5 @@ private:
   Encoder::CancellationCheck is_cancelled_;
 };
 
-}  // namespace gufo::models::qwen::vision
+}  // namespace gufo::models::qwen_iq::vision
 #endif

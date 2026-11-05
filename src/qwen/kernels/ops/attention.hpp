@@ -13,7 +13,7 @@
 #include <hip/hip_runtime.h>
 #include <hipblas/hipblas.h>
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 /// Computes Fused QKV Projections for Full Attention layers in a single kernel
 void LaunchFusedQKVProjections(const void* q_w, core::GgmlType q_type,
@@ -74,7 +74,7 @@ void LaunchFusedQKNormRoPEKvWrite(
     std::uint32_t num_kv_heads, std::uint32_t head_dim,
     std::uint32_t rotary_dim, float rope_theta, float eps = 1e-6F,
     hipStream_t stream = nullptr,
-    const models::qwen::vision::DeviceRope* rope = nullptr);
+    const models::qwen_iq::vision::DeviceRope* rope = nullptr);
 
 /// Batched Causal Attention for B tokens with KV Cache. When skip_kv_write is
 /// true the KV cache is assumed already written by the fused prefill kernel
@@ -106,7 +106,7 @@ void LaunchBatchedFusedQKNormRoPEKvWrite(
     std::uint32_t num_kv_heads, std::uint32_t head_dim,
     std::uint32_t rotary_dim, float rope_theta, float eps = 1e-6F,
     hipStream_t stream = nullptr,
-    const models::qwen::vision::DeviceRope* rope = nullptr);
+    const models::qwen_iq::vision::DeviceRope* rope = nullptr);
 
 /// Qwen3.8-specific causal GQA tile for gfx1151. The kernel processes 16 query
 /// positions and two query heads per block while reusing one FP16 K/V tile.
@@ -158,7 +158,7 @@ void LaunchBatchedAttentionGemm(
     std::uint32_t num_kv_heads, std::uint32_t head_dim,
     hipStream_t stream = nullptr);
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 
 #endif  // defined(ENGINE_ENABLE_HIP)
 

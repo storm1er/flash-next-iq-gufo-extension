@@ -129,13 +129,13 @@ public:
       const SnapshotState& snapshot) const noexcept {
     return snapshots_ == snapshot.registry_;
   }
-  void ConfigureVision(std::shared_ptr<const qwen::vision::Prompt> prompt,
-                       std::shared_ptr<qwen::vision::Encoder> encoder,
+  void ConfigureVision(std::shared_ptr<const qwen_iq::vision::Prompt> prompt,
+                       std::shared_ptr<qwen_iq::vision::Encoder> encoder,
                        hipStream_t stream);
   void PrepareVision(hipStream_t stream);
-  void RestoreVisionLayout(const qwen::vision::RopeLayout& layout,
+  void RestoreVisionLayout(const qwen_iq::vision::RopeLayout& layout,
                            hipStream_t stream);
-  [[nodiscard]] const qwen::vision::RopeLayout& VisionLayout() const noexcept {
+  [[nodiscard]] const qwen_iq::vision::RopeLayout& VisionLayout() const noexcept {
     return vision_input_.layout();
   }
 
@@ -152,7 +152,7 @@ private:
     RollbackRows state_snapshots;  ///< [max_spec-1][v_heads][d][d]
   };
   struct AttentionState {
-    const qwen::vision::DeviceRope* rope{nullptr};
+    const qwen_iq::vision::DeviceRope* rope{nullptr};
     __half* k_cache{nullptr};  ///< [max_context][kv_heads*d]
     __half* v_cache{nullptr};  ///< [max_context][kv_heads*d]
     float* index_k{nullptr};   ///< [index_capacity_][indexer_dim] raw ring
@@ -178,7 +178,7 @@ private:
     std::uint32_t position{0};
     bool residual_valid{false};
     /// The request's draft table (draft_vocab.hpp):
-    /// speculative::kDraftVocabExtraRows output() rows and their token IDs, -1
+    /// speculative_iq::kDraftVocabExtraRows output() rows and their token IDs, -1
     /// for an empty slot.
     std::uint8_t* draft_rows{nullptr};
     std::int32_t* draft_ids{nullptr};
@@ -187,7 +187,7 @@ private:
   mutable bool cancelled_{false};
   std::uint64_t mutation_epoch_{0};
   const Executor* owner_{nullptr};
-  qwen::vision::DeviceInput vision_input_;
+  qwen_iq::vision::DeviceInput vision_input_;
   std::uint32_t max_context_{0};
   bool mtp_enabled_{false};
   std::uint32_t index_capacity_{0};  ///< power-of-two raw indexer ring rows
@@ -261,7 +261,7 @@ public:
   /// indexer block layout; `destination` holds only the requested rows.
   void CopyNativeKeys(const Session& s, const __half* rows, std::uint32_t first,
                       std::uint32_t count, bool pooled,
-                      const qwen::vision::DeviceRope* rope, __half* destination,
+                      const qwen_iq::vision::DeviceRope* rope, __half* destination,
                       hipStream_t stream) const;
 
   struct Options {
@@ -634,7 +634,7 @@ private:
     return requested && !model_->draft_output().empty() &&
            session.mtp_.draft_rows != nullptr;
   }
-  /// The session's draft table as a weight of speculative::kDraftVocabExtraRows
+  /// The session's draft table as a weight of speculative_iq::kDraftVocabExtraRows
   /// rows.
   DeviceTensor DraftTable(const Session& session) const noexcept;
   /// Small-head draft logits: prefix rows, then the table rows with empty

@@ -14,7 +14,7 @@
 #include "qwen/kernels/ops/ssm.hpp"
 #include "qwen/hip_common/quant_ops.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 template<std::uint32_t WavesPerBlock>
 __launch_bounds__(WavesPerBlock * 32, 4) __global__
@@ -287,5 +287,5 @@ void LaunchFusedSSMInputProjections(
       qkv_size, inner_size, time_step_rank);
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

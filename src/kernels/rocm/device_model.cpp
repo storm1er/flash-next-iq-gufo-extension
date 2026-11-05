@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "kernels/rocm/kernels.hpp"
-#include "kernels/rocm/mmq/qfn_mmq.h"
+#include "kernels/rocm/mmq/fniq_mmq.h"
 
 namespace gufo::models::flash_next_iq::rocm {
 namespace {

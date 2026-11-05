@@ -11,7 +11,7 @@
 #include "qwen/kernels/ops/token.hpp"
 #include "qwen/hip_common/quant_ops.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 // Quant block layouts (Q8_0 / Q5_K / Q6_K / Q8_K) and the quant helpers are
 // shared via src/families/qwen/hip_common/quant_ops.hpp.
@@ -64,5 +64,5 @@ void LaunchBatchedEmbeddingLookup(const void* table, core::GgmlType type,
                                  stream>>>(table, type, token_ids, out_hidden,
                                            batch_size, hidden_size);
 }
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif  // defined(ENGINE_ENABLE_HIP)

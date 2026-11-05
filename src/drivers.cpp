@@ -69,12 +69,12 @@ BenchStats ComputeStats(const std::vector<double>& values) {
   return {.mean = mean, .stddev = std::sqrt(variance)};
 }
 
-std::vector<tokenization::TokenId> MakeBenchmarkTokens(
+std::vector<tokenization_iq::TokenId> MakeBenchmarkTokens(
     std::size_t count, std::size_t start_pos = 0) {
-  std::vector<tokenization::TokenId> tokens(count);
+  std::vector<tokenization_iq::TokenId> tokens(count);
   for (std::size_t i = 0; i < count; ++i) {
     tokens[i] =
-        static_cast<tokenization::TokenId>(((start_pos + i) % 1000) + 100);
+        static_cast<tokenization_iq::TokenId>(((start_pos + i) % 1000) + 100);
   }
   return tokens;
 }
@@ -100,7 +100,7 @@ void PrintModelLoadTime(std::chrono::steady_clock::time_point start,
             << (success ? "success" : "failed") << ").\n";
 }
 
-void PrintTokenTrace(std::span<const tokenization::TokenId> tokens) {
+void PrintTokenTrace(std::span<const tokenization_iq::TokenId> tokens) {
   std::vector<std::uint8_t> bytes;
   bytes.reserve(tokens.size() * sizeof(std::uint32_t));
   for (const auto token : tokens) {
@@ -145,7 +145,7 @@ static gufo::ReasoningOptions PromptReasoningOptions(
 }
 
 void AttachImages(const ext::TextPromptOptions& opt,
-                  tokenization::ChatMessage& user_msg) {
+                  tokenization_iq::ChatMessage& user_msg) {
   for (const auto& path : opt.image_paths) {
     std::ifstream is(path, std::ios::binary | std::ios::ate);
     if (!is) {
@@ -158,23 +158,23 @@ void AttachImages(const ext::TextPromptOptions& opt,
       throw std::runtime_error("Failed to read image: " + path);
     }
     user_msg.images.push_back(
-        {0, std::move(bytes), tokenization::ChatMessage::ImageDetail::kAuto});
+        {0, std::move(bytes), tokenization_iq::ChatMessage::ImageDetail::kAuto});
   }
 }
 
-std::shared_ptr<const models::qwen::vision::Prompt> PrepareVision(
+std::shared_ptr<const models::qwen_iq::vision::Prompt> PrepareVision(
     const ext::TextPromptOptions& opt,
-    const tokenization::QwenTokenizer& tokenizer,
-    std::span<const tokenization::ChatMessage> messages,
-    const std::shared_ptr<models::qwen::vision::Encoder>& encoder) {
+    const tokenization_iq::QwenTokenizer& tokenizer,
+    std::span<const tokenization_iq::ChatMessage> messages,
+    const std::shared_ptr<models::qwen_iq::vision::Encoder>& encoder) {
   if (!encoder)
     throw std::invalid_argument(
         "image input requires a matching --mmproj BF16 sidecar");
   const auto reasoning = PromptReasoningOptions(opt);
-  return std::make_shared<models::qwen::vision::Prompt>(
-      models::qwen::vision::Prepare(
+  return std::make_shared<models::qwen_iq::vision::Prompt>(
+      models::qwen_iq::vision::Prepare(
           tokenizer, messages, {},
-          tokenization::ResolveQwenChatOptions(reasoning, opt.add_vision_id),
+          tokenization_iq::ResolveQwenChatOptions(reasoning, opt.add_vision_id),
           encoder->identity(), kDefaultContext));
 }
 
@@ -190,7 +190,7 @@ std::shared_ptr<models::flash_next_iq::Model> LoadFlashNextModel(
     return nullptr;
   }
   if (opt.use_chat_template &&
-      !tokenization::QwenChatTemplate::ValidateGgufTemplate(reader, &error)) {
+      !tokenization_iq::QwenChatTemplate::ValidateGgufTemplate(reader, &error)) {
     std::cerr << "Unsupported Flash-Next chat template: " << error << '\n';
     return nullptr;
   }
@@ -211,7 +211,7 @@ std::shared_ptr<models::flash_next_iq::Model> LoadFlashNextModel(
 int GenerateFlashNextResponse(const ext::TextPromptOptions& opt,
                               const models::flash_next_iq::Model& model,
                               models::flash_next_iq::Session& session,
-                              std::span<const tokenization::TokenId> prompt,
+                              std::span<const tokenization_iq::TokenId> prompt,
                               std::string* reply = nullptr) {
   if (prompt.empty() || prompt.size() >= session.ContextSize() ||
       opt.max_tokens > session.ContextSize() - prompt.size()) {
@@ -226,7 +226,7 @@ int GenerateFlashNextResponse(const ext::TextPromptOptions& opt,
     return 1;
   }
   sampling::SamplerState sampler(opt.sampling, prompt);
-  std::vector<tokenization::TokenId> generated;
+  std::vector<tokenization_iq::TokenId> generated;
   const auto stats_before = session.Statistics();
   const auto start = std::chrono::steady_clock::now();
   while (generated.size() < opt.max_tokens) {
@@ -241,7 +241,7 @@ int GenerateFlashNextResponse(const ext::TextPromptOptions& opt,
       std::cout << piece << std::flush;
       if (reply)
         reply->append(piece);
-      generated.push_back(static_cast<tokenization::TokenId>(token));
+      generated.push_back(static_cast<tokenization_iq::TokenId>(token));
     }
     if (decoded.stop)
       break;
@@ -395,7 +395,7 @@ int RunQwen38FlashNextBenchmarkImpl(
     }
     const auto reference = sequential->Logits();
     const auto candidate = batched->Logits();
-    const auto comparison = testing::CompareLogits(reference, candidate);
+    const auto comparison = testing_iq::CompareLogits(reference, candidate);
     const std::size_t rank =
         1 + std::count_if(candidate.begin(), candidate.end(), [&](float value) {
           return value > candidate[comparison.reference_argmax];
@@ -555,19 +555,19 @@ int RunFlashNextPromptImpl(
     std::chrono::steady_clock::time_point model_load_start) {
   std::string err;
   std::string rendered_prompt = opt.prompt_text;
-  std::vector<tokenization::ContentSpan> content_spans;
-  std::vector<tokenization::ChatMessage> messages;
+  std::vector<tokenization_iq::ContentSpan> content_spans;
+  std::vector<tokenization_iq::ChatMessage> messages;
   if (opt.use_chat_template) {
     if (!opt.system_prompt.empty()) {
       messages.push_back(
-          {tokenization::ChatRole::kSystem, opt.system_prompt, "", ""});
+          {tokenization_iq::ChatRole::kSystem, opt.system_prompt, "", ""});
     }
     messages.push_back(
-        {tokenization::ChatRole::kUser, opt.prompt_text, "", ""});
+        {tokenization_iq::ChatRole::kUser, opt.prompt_text, "", ""});
     const auto reasoning = PromptReasoningOptions(opt);
-    const auto rendered = tokenization::QwenChatTemplate::Render(
+    const auto rendered = tokenization_iq::QwenChatTemplate::Render(
         messages, {},
-        tokenization::ResolveQwenChatOptions(reasoning, opt.add_vision_id),
+        tokenization_iq::ResolveQwenChatOptions(reasoning, opt.add_vision_id),
         nullptr, nullptr, nullptr, &content_spans);
     if (rendered.has_value()) {
       rendered_prompt = *rendered;
@@ -577,8 +577,8 @@ int RunFlashNextPromptImpl(
     }
   }
 
-  const auto encode_prompt = [&](const tokenization::QwenTokenizer& tokenizer) {
-    return tokenization::QwenChatTemplate::EncodeRendered(
+  const auto encode_prompt = [&](const tokenization_iq::QwenTokenizer& tokenizer) {
+    return tokenization_iq::QwenChatTemplate::EncodeRendered(
         tokenizer, rendered_prompt, 0, rendered_prompt.size(), content_spans,
         {});
   };
@@ -603,7 +603,7 @@ int RunFlashNextPromptImpl(
       return GenerateFlashNextResponse(opt, *model, *session, vision->tokens);
     }
     const auto ids = encode_prompt(model->tokenizer());
-    const std::vector<tokenization::TokenId> prompt(ids.begin(), ids.end());
+    const std::vector<tokenization_iq::TokenId> prompt(ids.begin(), ids.end());
     return GenerateFlashNextResponse(opt, *model, *session, prompt);
   } catch (const std::exception& e) {
     std::cerr << e.what() << '\n';
@@ -648,10 +648,10 @@ int RunFlashNextChat(const ext::TextPromptOptions& opt,
   std::cout << "=== Gufo Interactive Chat (qwen4exp) ===\n"
             << "Type 'exit' or Ctrl+D to quit.\n\n";
 
-  std::vector<tokenization::ChatMessage> history;
+  std::vector<tokenization_iq::ChatMessage> history;
   if (!opt.system_prompt.empty()) {
     history.push_back(
-        {tokenization::ChatRole::kSystem, opt.system_prompt, "", ""});
+        {tokenization_iq::ChatRole::kSystem, opt.system_prompt, "", ""});
   }
 
   bool first_turn = true;
@@ -668,19 +668,19 @@ int RunFlashNextChat(const ext::TextPromptOptions& opt,
       continue;
     }
 
-    history.push_back({tokenization::ChatRole::kUser, user_input, "", ""});
+    history.push_back({tokenization_iq::ChatRole::kUser, user_input, "", ""});
     const auto reasoning = PromptReasoningOptions(opt);
-    std::vector<tokenization::ContentSpan> content_spans;
-    const auto rendered_prompt = tokenization::QwenChatTemplate::Render(
+    std::vector<tokenization_iq::ContentSpan> content_spans;
+    const auto rendered_prompt = tokenization_iq::QwenChatTemplate::Render(
         history, {},
-        tokenization::ResolveQwenChatOptions(reasoning, opt.add_vision_id),
+        tokenization_iq::ResolveQwenChatOptions(reasoning, opt.add_vision_id),
         nullptr, nullptr, nullptr, &content_spans);
     if (!rendered_prompt.has_value()) {
       std::cerr << "Error formatting chat template.\n";
       return 1;
     }
 
-    auto prompt_tokens = tokenization::QwenChatTemplate::EncodeRendered(
+    auto prompt_tokens = tokenization_iq::QwenChatTemplate::EncodeRendered(
         tokenizer, *rendered_prompt, 0, rendered_prompt->size(), content_spans,
         {});
 
@@ -705,8 +705,8 @@ int RunFlashNextChat(const ext::TextPromptOptions& opt,
     }
 
     std::cout << '\n';
-    tokenization::ChatMessage reply{tokenization::ChatRole::kAssistant, ""};
-    if (tokenization::ResolveQwenChatOptions(reasoning, opt.add_vision_id)
+    tokenization_iq::ChatMessage reply{tokenization_iq::ChatRole::kAssistant, ""};
+    if (tokenization_iq::ResolveQwenChatOptions(reasoning, opt.add_vision_id)
             .enable_thinking) {
       constexpr std::string_view end = "</think>";
       const auto boundary = assistant_reply.find(end);

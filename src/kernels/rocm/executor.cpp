@@ -19,7 +19,7 @@
 #include <type_traits>
 #include <vector>
 
-#include "qfn_mmq.h"
+#include "fniq_mmq.h"
 #include "qwen/draft_vocab/draft_vocab.hpp"
 #include "kernels/rocm/kernels.hpp"
 
@@ -106,7 +106,7 @@ bool WidePrefill(std::uint32_t rows) {
 /// contiguous element order is the layout.
 bool UnpaddedQ8(std::uint32_t k) {
   return k % 32 == 0 &&
-         qfn_mmq_q8_1_bytes(1, static_cast<int>(k)) == k / 32 * 36;
+         fniq_mmq_q8_1_bytes(1, static_cast<int>(k)) == k / 32 * 36;
 }
 
 /// Key-tile splits per row of a narrow attention batch (decode at depth).
@@ -678,7 +678,7 @@ Session::~Session() {
   }
 }
 
-void Session::RestoreVisionLayout(const qwen::vision::RopeLayout& layout,
+void Session::RestoreVisionLayout(const qwen_iq::vision::RopeLayout& layout,
                                   hipStream_t stream) {
   layout.Validate(max_context_);
   const auto* previous = vision_input_.rope();
@@ -700,8 +700,8 @@ void Session::PrepareVision(hipStream_t stream) {
 }
 
 void Session::ConfigureVision(
-    std::shared_ptr<const qwen::vision::Prompt> prompt,
-    std::shared_ptr<qwen::vision::Encoder> encoder, hipStream_t stream) {
+    std::shared_ptr<const qwen_iq::vision::Prompt> prompt,
+    std::shared_ptr<qwen_iq::vision::Encoder> encoder, hipStream_t stream) {
   if (prompt)
     prompt->rope.Validate(max_context_);
   const auto* previous = vision_input_.rope();
@@ -974,7 +974,7 @@ Executor::~Executor() {
   if (side_stream_ != nullptr)
     (void)hipStreamDestroy(side_stream_);
   if (stream_ != nullptr) {
-    qfn_mmq_release_stream(stream_);
+    fniq_mmq_release_stream(stream_);
     (void)hipStreamDestroy(stream_);
   }
 }
@@ -991,7 +991,7 @@ std::unique_ptr<Executor> Executor::Create(const DeviceModel& model,
       options.max_logit_rows, 1, e->options_.max_batch);
   e->options_.max_speculative = std::clamp<std::uint32_t>(
       options.max_speculative, 1, e->options_.max_logit_rows);
-  if (qfn_mmq_init(0) != 0) {
+  if (fniq_mmq_init(0) != 0) {
     AssignError(error_msg, "quantized GEMM tier initialization failed");
     return nullptr;
   }
@@ -999,7 +999,7 @@ std::unique_ptr<Executor> Executor::Create(const DeviceModel& model,
     return nullptr;
   // The first greedy verification otherwise resolves the shared argmax
   // module on the decode path. Preparation launches no trial kernels.
-  if (e->has_mtp() && !Check(gufo::hip::PrepareBatchedGPUArgmax(),
+  if (e->has_mtp() && !Check(gufo::hip_iq::PrepareBatchedGPUArgmax(),
                              "MTP argmax preparation", error_msg))
     return nullptr;
   if (!Check(hipStreamCreate(&e->stream_), "hipStreamCreate", error_msg)) {
@@ -1068,13 +1068,13 @@ std::unique_ptr<Executor> Executor::Create(const DeviceModel& model,
   for (void*& slot : s.x_q8) {
     slot = Alloc<std::uint8_t>(
         a,
-        qfn_mmq_q8_1_bytes(static_cast<int>(kVecBatch),
+        fniq_mmq_q8_1_bytes(static_cast<int>(kVecBatch),
                            static_cast<int>(model.max_q8_cols())),
         error_msg);
   }
   const auto q8_1 = [&](std::size_t k) {
     return Alloc<std::uint8_t>(
-        a, qfn_mmq_q8_1_bytes(static_cast<int>(kVecBatch), static_cast<int>(k)),
+        a, fniq_mmq_q8_1_bytes(static_cast<int>(kVecBatch), static_cast<int>(k)),
         error_msg);
   };
   s.xn_q8_1 = q8_1(hc_dim);
@@ -1400,12 +1400,12 @@ std::unique_ptr<Session> Executor::CreateSession(core::SessionMode mode,
     if (!model_->draft_output().empty()) {
       s->mtp_.draft_rows =
           Alloc<std::uint8_t>(a,
-                              std::size_t{speculative::kDraftVocabExtraRows} *
+                              std::size_t{speculative_iq::kDraftVocabExtraRows} *
                                       model_->output_row_bytes() +
                                   4096,
                               error_msg, &s->allocated_bytes_);
       s->mtp_.draft_ids =
-          Alloc<std::int32_t>(a, speculative::kDraftVocabExtraRows, error_msg,
+          Alloc<std::int32_t>(a, speculative_iq::kDraftVocabExtraRows, error_msg,
                               &s->allocated_bytes_);
     }
   }
@@ -1435,8 +1435,8 @@ bool Executor::AppendDraftRows(Session& session, std::uint32_t first,
   if (ids.empty())
     return true;
   if (session.owner_ != this || session.mtp_.draft_rows == nullptr ||
-      first > speculative::kDraftVocabExtraRows ||
-      ids.size() > speculative::kDraftVocabExtraRows - first) {
+      first > speculative_iq::kDraftVocabExtraRows ||
+      ids.size() > speculative_iq::kDraftVocabExtraRows - first) {
     AssignError(error_msg, "invalid draft table append");
     return false;
   }
@@ -1465,14 +1465,14 @@ bool Executor::AppendDraftRows(Session& session, std::uint32_t first,
 bool Executor::ClearDraftRows(Session& session, std::uint32_t first,
                               std::string* error_msg) const {
   if (session.owner_ != this || session.mtp_.draft_ids == nullptr ||
-      first > speculative::kDraftVocabExtraRows) {
+      first > speculative_iq::kDraftVocabExtraRows) {
     AssignError(error_msg, "invalid draft table clear");
     return false;
   }
   // Stale rows stay; an ID of -1 masks the slot.
-  return first == speculative::kDraftVocabExtraRows ||
+  return first == speculative_iq::kDraftVocabExtraRows ||
          Check(hipMemsetAsync(session.mtp_.draft_ids + first, 0xFF,
-                              (speculative::kDraftVocabExtraRows - first) *
+                              (speculative_iq::kDraftVocabExtraRows - first) *
                                   sizeof(std::int32_t),
                               stream_),
                "draft table clear", error_msg);
@@ -1481,7 +1481,7 @@ bool Executor::ClearDraftRows(Session& session, std::uint32_t first,
 DeviceTensor Executor::DraftTable(const Session& session) const noexcept {
   DeviceTensor table = model_->output();
   table.data = session.mtp_.draft_rows;
-  table.rows = speculative::kDraftVocabExtraRows;
+  table.rows = speculative_iq::kDraftVocabExtraRows;
   return table;
 }
 
@@ -1492,7 +1492,7 @@ bool Executor::DraftLogits(const Session& session, const float* x,
       !Dense(DraftTable(session), x, logits + prefix.rows, 1, error_msg))
     return false;
   MaskDraftLogits(logits + prefix.rows, session.mtp_.draft_ids,
-                  speculative::kDraftVocabExtraRows, stream_);
+                  speculative_iq::kDraftVocabExtraRows, stream_);
   return true;
 }
 
@@ -1658,7 +1658,7 @@ std::size_t Executor::SessionBytes(
               ? kv + index + hidden_rows * c.HcDim() * sizeof(float) +
                     (model_->draft_output().empty()
                          ? 0
-                         : std::size_t{speculative::kDraftVocabExtraRows} *
+                         : std::size_t{speculative_iq::kDraftVocabExtraRows} *
                                    (model_->output_row_bytes() +
                                     sizeof(std::int32_t)) +
                                4096)
@@ -1743,7 +1743,7 @@ bool Executor::Quantize(const float* x, std::uint32_t n_tokens, std::uint32_t k,
   // quantization; captured graphs replay the same alternation.
   void* slot = s_.x_q8[q8_slot_];
   q8_slot_ ^= 1u;
-  if (qfn_mmq_quantize_q8_1(x, slot, static_cast<int>(n_tokens),
+  if (fniq_mmq_quantize_q8_1(x, slot, static_cast<int>(n_tokens),
                             static_cast<int>(k), stream_) != 0) {
     AssignError(error_msg, "activation quantization failed");
     return false;
@@ -1822,7 +1822,7 @@ bool Executor::SetYarnFactor(Session& s, float factor, std::string* error_msg) {
 
 void Executor::CopyNativeKeys(const Session& s, const __half* rows,
                               std::uint32_t first, std::uint32_t count,
-                              bool pooled, const qwen::vision::DeviceRope* rope,
+                              bool pooled, const qwen_iq::vision::DeviceRope* rope,
                               __half* destination, hipStream_t stream) const {
   const Config& c = config();
   const auto heads = pooled ? 1U : c.num_kv_heads;
@@ -1856,7 +1856,7 @@ bool Executor::Dense(const DeviceTensor& w, const Q8Input& q, float* out,
                      std::string* error_msg) const {
   if (w.type == GgmlType::kQ6_K && q.data != nullptr) {
     if (w.cols != q.k ||
-        qfn_mmq_dense_vec_preq(static_cast<int>(w.type), w.data, q.data, out,
+        fniq_mmq_dense_vec_preq(static_cast<int>(w.type), w.data, q.data, out,
                                static_cast<int>(w.rows), static_cast<int>(q.n),
                                static_cast<int>(w.cols), stream_) != 0) {
       AssignError(error_msg, "Q6_K GEMV failed");
@@ -1869,7 +1869,7 @@ bool Executor::Dense(const DeviceTensor& w, const Q8Input& q, float* out,
       AssignError(error_msg, "quantized input width mismatch");
       return false;
     }
-    if (qfn_mmq_q8_0_dense_vec_preq(
+    if (fniq_mmq_q8_0_dense_vec_preq(
             w.data, nullptr, q.data, out, static_cast<int>(w.rows),
             static_cast<int>(q.n), static_cast<int>(w.cols), stream_) != 0) {
       AssignError(error_msg, "Q8_0 GEMV failed");
@@ -1893,7 +1893,7 @@ bool Executor::GatedDense(const DeviceTensor& up, const DeviceTensor& gate,
     if (!Quantize(x, n_tokens, up.cols, &xq, error_msg)) {
       return false;
     }
-    if (qfn_mmq_q8_0_dense_vec_preq(up.data, gate.data, xq.data, out,
+    if (fniq_mmq_q8_0_dense_vec_preq(up.data, gate.data, xq.data, out,
                                     static_cast<int>(up.rows),
                                     static_cast<int>(n_tokens),
                                     static_cast<int>(up.cols), stream_) != 0) {
@@ -1968,7 +1968,7 @@ bool Executor::Dense(const DeviceTensor& w, const float* x, float* out,
       if (ready == nullptr) {
         void* slot = s_.x_q8[q8_slot_];
         q8_slot_ ^= 1u;
-        if (qfn_mmq_quantize_q8_1(src, slot, static_cast<int>(rows),
+        if (fniq_mmq_quantize_q8_1(src, slot, static_cast<int>(rows),
                                   static_cast<int>(w.cols), stream_) != 0) {
           AssignError(error_msg, "activation quantization failed");
           return false;
@@ -2067,12 +2067,12 @@ void Executor::RoutedHints(const DeviceTensor& w,
   // width fitted to the whole distribution (see RouteHints); the fallback
   // bound is the token count with a tile near twice the mean bucket.
   if (routed_max_rows_ > 0) {
-    qfn_mmq_set_routed_max_expert_rows(static_cast<int>(routed_max_rows_));
-    qfn_mmq_set_routed_tile_cols(routed_tile_cols_);
+    fniq_mmq_set_routed_max_expert_rows(static_cast<int>(routed_max_rows_));
+    fniq_mmq_set_routed_tile_cols(routed_tile_cols_);
     return;
   }
-  qfn_mmq_set_routed_max_expert_rows(static_cast<int>(n_tokens));
-  qfn_mmq_set_routed_tile_cols(
+  fniq_mmq_set_routed_max_expert_rows(static_cast<int>(n_tokens));
+  fniq_mmq_set_routed_tile_cols(
       RoutedTileCols(n_tokens, config().num_experts_used, w.experts));
 }
 
@@ -2133,7 +2133,7 @@ bool Executor::RouteHints(std::uint32_t n_tokens, bool paired_wide,
     append(routed_tile_rows_);
     routed_n_tiles_ = n_tiles;
   }
-  routed_tile_cols_ = qfn_mmq_routed_tile_cols_for_counts(
+  routed_tile_cols_ = fniq_mmq_routed_tile_cols_for_counts(
       counts_host_, static_cast<int>(c.num_experts));
   return n_tiles == 0 || Check(hipMemcpyAsync(s_.routed_tiles, tiles_host_,
                                               n_tiles * sizeof(std::int32_t),
@@ -2161,32 +2161,32 @@ bool Executor::Experts(const DeviceTensor& w, const float* x,
   }
   int rc = -1;
   if (!tiled) {
-    rc = qfn_mmq_moe_vec(static_cast<int>(w.type), w.data, x, ids, out, M, K, T,
+    rc = fniq_mmq_moe_vec(static_cast<int>(w.type), w.data, x, ids, out, M, K, T,
                          E, U, stream_);
   } else {
     switch (w.type) {
       case GgmlType::kQ4_K:
-        rc = qfn_mmq_q4_K_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+        rc = fniq_mmq_q4_K_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
       case GgmlType::kQ5_K:
-        rc = qfn_mmq_q5_K_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+        rc = fniq_mmq_q5_K_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
       case GgmlType::kQ5_1:
-        rc = qfn_mmq_q5_1_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+        rc = fniq_mmq_q5_1_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
       case GgmlType::kQ8_0:
-        rc = qfn_mmq_q8_0_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+        rc = fniq_mmq_q8_0_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
       case GgmlType::kIQ3_S:
-        rc = qfn_mmq_iq3_s_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+        rc = fniq_mmq_iq3_s_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
       case GgmlType::kIQ4_NL:
         rc =
-            qfn_mmq_iq4_nl_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+            fniq_mmq_iq4_nl_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
       case GgmlType::kIQ4_XS:
         rc =
-            qfn_mmq_iq4_xs_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+            fniq_mmq_iq4_xs_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
       default:
         break;
@@ -2212,12 +2212,12 @@ bool Executor::GatedExperts(const DeviceTensor& a, const DeviceTensor& b,
     // The shared expert quantized the same rows (or their producer did).
     const void* ready = ReadyQ8(x, n_tokens, a.cols);
     if ((ready != nullptr
-             ? qfn_mmq_moe_gated_vec_preq(
+             ? fniq_mmq_moe_gated_vec_preq(
                    static_cast<int>(a.type), a.data, b.data, ready, ids, out,
                    static_cast<int>(a.rows), static_cast<int>(a.cols),
                    static_cast<int>(n_tokens), static_cast<int>(a.experts),
                    static_cast<int>(n_used), stream_)
-             : qfn_mmq_moe_gated_vec(
+             : fniq_mmq_moe_gated_vec(
                    static_cast<int>(a.type), a.data, b.data, x, ids, out,
                    static_cast<int>(a.rows), static_cast<int>(a.cols),
                    static_cast<int>(n_tokens), static_cast<int>(a.experts),
@@ -2228,7 +2228,7 @@ bool Executor::GatedExperts(const DeviceTensor& a, const DeviceTensor& b,
     return true;
   }
   if (!ExpertMatrixRows(n_tokens) && same_shape) {
-    if (qfn_mmq_moe_vec(static_cast<int>(a.type), a.data, x, ids, out,
+    if (fniq_mmq_moe_vec(static_cast<int>(a.type), a.data, x, ids, out,
                         static_cast<int>(a.rows), static_cast<int>(a.cols),
                         static_cast<int>(n_tokens), static_cast<int>(a.experts),
                         static_cast<int>(n_used), stream_, b.data,
@@ -2239,7 +2239,7 @@ bool Executor::GatedExperts(const DeviceTensor& a, const DeviceTensor& b,
   } else if (same_shape && a.type == GgmlType::kQ4_K) {
     // The wide Q4_K path shares its gather and tiled quantization as well.
     RoutedHints(a, n_tokens);
-    if (qfn_mmq_q4_K_moe_pair_unique(
+    if (fniq_mmq_q4_K_moe_pair_unique(
             a.data, b.data, x, ids, out, s_.up_e, static_cast<int>(a.rows),
             static_cast<int>(a.cols), static_cast<int>(n_tokens),
             static_cast<int>(a.experts), static_cast<int>(n_used),
@@ -2388,7 +2388,7 @@ bool Executor::HcMix(const DeviceMixer& m, const float* res, bool normed,
           s_.lo,
           s_.lo_q8_1,
           static_cast<std::uint32_t>(
-              qfn_mmq_q8_1_bytes(1, static_cast<int>(c.hc_low_rank)) / 36 * 32),
+              fniq_mmq_q8_1_bytes(1, static_cast<int>(c.hc_low_rank)) / 36 * 32),
           fused_inject ? m.inject.f32() : nullptr,
           mixed,
           s_.mixed_q8_1,
@@ -2450,7 +2450,7 @@ bool Executor::HcMix(const DeviceMixer& m, const float* res, bool normed,
     }
     const float scale = 1.0F / static_cast<float>(c.hc_count);
     const std::uint32_t lo_q8_cols = static_cast<std::uint32_t>(
-        qfn_mmq_q8_1_bytes(1, static_cast<int>(c.hc_low_rank)) / 36 * 32);
+        fniq_mmq_q8_1_bytes(1, static_cast<int>(c.hc_low_rank)) / 36 * 32);
     if (!MatrixRows(n_tokens) && m.up.type == GgmlType::kQ8_0 &&
         m.up.cols == c.hc_low_rank &&
         SiluScaleQ8_1(s_.lo, scale, n_tokens, c.hc_low_rank, lo_q8_cols,
@@ -3365,7 +3365,7 @@ bool Executor::MtpHead(const DeviceMixer& head, const float* res, bool token,
                        std::string* error_msg) const {
   const std::uint32_t prefix = model_->draft_output().rows;
   const std::uint32_t rows = draft != nullptr
-                                 ? prefix + speculative::kDraftVocabExtraRows
+                                 ? prefix + speculative_iq::kDraftVocabExtraRows
                                  : model_->output().rows;
   if (!HcMix(head, res, false, s_.mixed, nullptr, 1, error_msg) ||
       !(draft != nullptr
@@ -3379,14 +3379,14 @@ bool Executor::MtpHead(const DeviceMixer& head, const float* res, bool token,
                      rows, stream_);
     if (draft != nullptr)
       RemapDraftIds(s_.mtp_ids, count, prefix, draft->mtp_.draft_ids,
-                    speculative::kDraftVocabExtraRows, stream_);
+                    speculative_iq::kDraftVocabExtraRows, stream_);
   }
   if (token) {
     Argmax(s_.logits, s_.mtp_argmax, s_.mtp_token, 1, rows, stream_);
     ArgmaxConfidence(s_.logits, s_.mtp_token, rows, stream_);
     if (draft != nullptr)
       RemapDraftIds(reinterpret_cast<std::uint32_t*>(s_.mtp_token), 1, prefix,
-                    draft->mtp_.draft_ids, speculative::kDraftVocabExtraRows,
+                    draft->mtp_.draft_ids, speculative_iq::kDraftVocabExtraRows,
                     stream_);
     if (!Check(hipMemcpyAsync(mtp_token_host_, s_.mtp_token,
                               2 * sizeof(std::int32_t), hipMemcpyDeviceToHost,
@@ -4192,7 +4192,7 @@ std::uint64_t Executor::WalkSnapshot(const SnapshotHeader& h,
     }
   }
   return offset +
-         std::uint64_t{h.image_count} * sizeof(qwen::vision::ImageGrid);
+         std::uint64_t{h.image_count} * sizeof(qwen_iq::vision::ImageGrid);
 }
 
 std::uint64_t Executor::SnapshotBytes(const Session& session,
@@ -4296,7 +4296,7 @@ bool Executor::SaveSnapshot(const Session& session, std::uint32_t hidden_rows,
     PopulateSnapshotPrefix(payload.data(), payload.size());
   std::memcpy(payload.data(), &h, sizeof(h));
   const auto grid_bytes =
-      std::size_t{h.image_count} * sizeof(qwen::vision::ImageGrid);
+      std::size_t{h.image_count} * sizeof(qwen_iq::vision::ImageGrid);
   if (grid_bytes != 0) {
     std::memcpy(payload.data() + payload.size() - grid_bytes,
                 session.VisionLayout().images.data(), grid_bytes);
@@ -4430,10 +4430,10 @@ bool Executor::RestoreSnapshot(Session& session,
     AssignError(error_msg, "snapshot payload size does not match its header");
     return false;
   }
-  qwen::vision::RopeLayout layout;
+  qwen_iq::vision::RopeLayout layout;
   layout.images.resize(h.image_count);
   const auto grid_bytes =
-      layout.images.size() * sizeof(qwen::vision::ImageGrid);
+      layout.images.size() * sizeof(qwen_iq::vision::ImageGrid);
   if (grid_bytes != 0) {
     std::memcpy(layout.images.data(),
                 payload.data() + payload.size() - grid_bytes, grid_bytes);
@@ -4776,7 +4776,7 @@ bool Executor::GreedyMtpPredictions(std::span<ArgmaxCandidate> predictions,
         reinterpret_cast<PenaltyArgmaxCandidate*>(s_.mtp_scratch_ids),
         s_.mtp_argmax, rows, vocab, stream_);
   } else {
-    gufo::hip::LaunchBatchedGPUArgmax(
+    gufo::hip_iq::LaunchBatchedGPUArgmax(
         VerificationLogits(), s_.mtp_ids, rows, vocab,
         {reinterpret_cast<float*>(s_.mtp_scratch_ids),
          MtpCandidateWorkspaceSize(vocab)},

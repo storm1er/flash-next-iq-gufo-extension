@@ -6,11 +6,11 @@
 
 #include "qwen/vision/prompt.hpp"
 
-namespace gufo::models::qwen::vision {
+namespace gufo::models::qwen_iq::vision {
 
 std::shared_ptr<const core::Image> ImageCache::Get(
     const std::shared_ptr<const std::vector<std::uint8_t>>& encoded,
-    tokenization::ChatMessage::ImageDetail detail) {
+    tokenization_iq::ChatMessage::ImageDetail detail) {
   if (!encoded)
     throw std::invalid_argument("image input has no encoded bytes");
   const std::hash<std::string_view> hash;
@@ -65,4 +65,4 @@ ImageCache::Stats ImageCache::GetStats() const {
   return stats;
 }
 
-}  // namespace gufo::models::qwen::vision
+}  // namespace gufo::models::qwen_iq::vision

@@ -44,7 +44,7 @@ public:
   [[nodiscard]] bool MtpStep(const MtpWeights& mtp, std::int32_t token,
                              std::span<const float> hidden,
                              std::span<float> logits, MtpTrace* trace = nullptr,
-                             const qwen::vision::RopeLayout* rope = nullptr,
+                             const qwen_iq::vision::RopeLayout* rope = nullptr,
                              std::string* error_msg = nullptr,
                              const MtpTrace* stage_inputs = nullptr);
 
@@ -78,7 +78,7 @@ private:
   void Attention(const LayerWeights& l, AttentionState& s,
                  std::span<const float> x, std::uint32_t pos,
                  std::span<float> out,
-                 const qwen::vision::RopeLayout* rope = nullptr);
+                 const qwen_iq::vision::RopeLayout* rope = nullptr);
   void Moe(const LayerWeights& l, std::span<const float> x,
            std::span<float> out);
 

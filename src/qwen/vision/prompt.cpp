@@ -10,7 +10,7 @@
 #include "qwen/control_tokens/control_tokens.hpp"
 #include "qwen/vision/image_cache.hpp"
 
-namespace gufo::models::qwen::vision {
+namespace gufo::models::qwen_iq::vision {
 namespace {
 constexpr std::uint32_t kResizeFactor = kPatchSize * kMergeSize;
 constexpr std::uint32_t kMinPixels = 65536;
@@ -171,7 +171,7 @@ void RopeLayout::Validate(std::uint32_t max_context) const {
 }
 
 core::Image ResizeImage(const core::Image& image,
-                        tokenization::ChatMessage::ImageDetail detail) {
+                        tokenization_iq::ChatMessage::ImageDetail detail) {
   if (image.width == 0 || image.height == 0 ||
       std::uint64_t{image.width} * image.height > core::kMaxImagePixels ||
       image.pixels.size() != std::size_t{image.width} * image.height * 3 ||
@@ -210,7 +210,7 @@ core::Image ResizeImage(const core::Image& image,
   } else if (rounded_pixels < kMinPixels) {
     raise_to_minimum();
   }
-  if (detail == tokenization::ChatMessage::ImageDetail::kLow &&
+  if (detail == tokenization_iq::ChatMessage::ImageDetail::kLow &&
       (width > kLowDetailMaxSide || height > kLowDetailMaxSide)) {
     // A floating-point scale can land just below 512 on the longest side and
     // floor it to 480, so the bound uses integer arithmetic.
@@ -277,28 +277,28 @@ core::Image ResizeImage(const core::Image& image,
   return resized;
 }
 
-Prompt Prepare(const tokenization::QwenTokenizer& tokenizer,
-               std::span<const tokenization::ChatMessage> messages,
-               std::span<const tokenization::ChatTool> tools,
-               const tokenization::ChatTemplateOptions& options,
+Prompt Prepare(const tokenization_iq::QwenTokenizer& tokenizer,
+               std::span<const tokenization_iq::ChatMessage> messages,
+               std::span<const tokenization_iq::ChatTool> tools,
+               const tokenization_iq::ChatTemplateOptions& options,
                std::string_view encoder_identity, std::uint32_t max_context,
                ImageCache* image_cache) {
   std::vector<std::size_t> offsets;
-  std::vector<tokenization::ContentSpan> content_spans;
+  std::vector<tokenization_iq::ContentSpan> content_spans;
   std::size_t stable_prefix_bytes = 0;
   std::string error;
-  const auto rendered = tokenization::QwenChatTemplate::Render(
+  const auto rendered = tokenization_iq::QwenChatTemplate::Render(
       messages, tools, options, &error, &offsets, &stable_prefix_bytes,
       &content_spans);
   if (!rendered)
     throw std::invalid_argument(error);
   Prompt prompt;
-  tokenization::TokenizerOptions tok_options;
+  tokenization_iq::TokenizerOptions tok_options;
   tok_options.add_bos = false;
   tok_options.add_eos = false;
   tok_options.parse_special_tokens = true;
   const auto append = [&](std::size_t begin, std::size_t end) {
-    auto tokens = tokenization::QwenChatTemplate::EncodeRendered(
+    auto tokens = tokenization_iq::QwenChatTemplate::EncodeRendered(
         tokenizer, *rendered, begin, end, content_spans, tok_options);
     if (tokens.size() > max_context - prompt.tokens.size()) {
       throw std::length_error(
@@ -343,14 +343,14 @@ Prompt Prepare(const tokenization::QwenTokenizer& tokenizer,
       prompt.tokens.insert(prompt.tokens.end(), count, kImageToken);
       prompt.rope.images.push_back(grid);
       prompt.images.push_back({std::move(pixels), grid, identity.Digest()});
-      cursor = offsets[index++] + tokenization::kImagePad.size();
+      cursor = offsets[index++] + tokenization_iq::kImagePad.size();
     }
   }
   append(cursor, rendered->size());
   // The boundary starts a special token (the assistant turn, or a final user
   // turn an agent replaces each request), after every image.
   // Encode only the mutable suffix; never decode or resize images twice.
-  const auto suffix = tokenization::QwenChatTemplate::EncodeRendered(
+  const auto suffix = tokenization_iq::QwenChatTemplate::EncodeRendered(
       tokenizer, *rendered, stable_prefix_bytes, rendered->size(),
       content_spans, tok_options);
   if (suffix.size() > prompt.tokens.size() ||
@@ -364,4 +364,4 @@ Prompt Prepare(const tokenization::QwenTokenizer& tokenizer,
   }
   return prompt;
 }
-}  // namespace gufo::models::qwen::vision
+}  // namespace gufo::models::qwen_iq::vision

@@ -63,16 +63,16 @@ bool EndsTurn(const State& state, const Tokens& tokens, int token) {
 }
 
 struct QwenImageContext final : TextPromptContext {
-  std::shared_ptr<const models::qwen::vision::Prompt> prompt;
+  std::shared_ptr<const models::qwen_iq::vision::Prompt> prompt;
 };
 
-tokenization::ChatTemplateOptions QwenChatOptions(const ChatRequest& request,
+tokenization_iq::ChatTemplateOptions QwenChatOptions(const ChatRequest& request,
                                                   std::uint32_t max_context) {
-  auto options = tokenization::ResolveQwenChatOptions(request.reasoning,
+  auto options = tokenization_iq::ResolveQwenChatOptions(request.reasoning,
                                                       request.add_vision_id);
   // gufo #285: the rendered prompt may be as long as the context can hold.
   options.max_output_bytes =
-      tokenization::RenderedPromptBoundBytes(max_context);
+      tokenization_iq::RenderedPromptBoundBytes(max_context);
   return options;
 }
 
@@ -82,11 +82,11 @@ tokenization::ChatTemplateOptions QwenChatOptions(const ChatRequest& request,
 std::optional<std::string> RenderQwenPrompt(const ChatRequest& request,
                                             std::uint32_t max_context) {
   std::string error;
-  auto rendered = tokenization::QwenChatTemplate::Render(
+  auto rendered = tokenization_iq::QwenChatTemplate::Render(
       request.messages,
       request.tool_choice == ChatRequest::ToolChoice::kNone
-          ? std::span<const tokenization::ChatTool>{}
-          : std::span<const tokenization::ChatTool>{request.tools},
+          ? std::span<const tokenization_iq::ChatTool>{}
+          : std::span<const tokenization_iq::ChatTool>{request.tools},
       QwenChatOptions(request, max_context), &error);
   if (!rendered)
     throw std::invalid_argument(error);
@@ -94,23 +94,23 @@ std::optional<std::string> RenderQwenPrompt(const ChatRequest& request,
 }
 
 std::optional<std::size_t> CountQwenPromptTokens(
-    const ChatRequest& request, const tokenization::QwenTokenizer& tokenizer,
-    const std::shared_ptr<models::qwen::vision::Encoder>& encoder,
-    std::uint32_t max_context, models::qwen::vision::ImageCache& image_cache) {
+    const ChatRequest& request, const tokenization_iq::QwenTokenizer& tokenizer,
+    const std::shared_ptr<models::qwen_iq::vision::Encoder>& encoder,
+    std::uint32_t max_context, models::qwen_iq::vision::ImageCache& image_cache) {
   const auto options = QwenChatOptions(request, max_context);
   const auto tools =
       request.tool_choice == ChatRequest::ToolChoice::kNone
-          ? std::span<const tokenization::ChatTool>{}
-          : std::span<const tokenization::ChatTool>{request.tools};
+          ? std::span<const tokenization_iq::ChatTool>{}
+          : std::span<const tokenization_iq::ChatTool>{request.tools};
   if (std::ranges::none_of(request.messages,
                            [](const auto& m) { return !m.images.empty(); })) {
-    const auto tokens = tokenization::QwenChatTemplate::RenderAndTokenize(
+    const auto tokens = tokenization_iq::QwenChatTemplate::RenderAndTokenize(
         tokenizer, request.messages, tools, options);
     if (!tokens)
       return std::nullopt;
     return tokens->size();
   }
-  return models::qwen::vision::Prepare(
+  return models::qwen_iq::vision::Prepare(
              tokenizer, request.messages, tools, options,
              encoder ? encoder->identity() : std::string_view{},
              std::numeric_limits<std::int32_t>::max(),
@@ -119,18 +119,18 @@ std::optional<std::size_t> CountQwenPromptTokens(
 }
 
 TextPreparedPrompt PrepareQwenPrompt(
-    const ChatRequest& request, const tokenization::QwenTokenizer& tokenizer,
-    const std::shared_ptr<models::qwen::vision::Encoder>& encoder,
-    std::uint32_t max_context, models::qwen::vision::ImageCache& image_cache) {
+    const ChatRequest& request, const tokenization_iq::QwenTokenizer& tokenizer,
+    const std::shared_ptr<models::qwen_iq::vision::Encoder>& encoder,
+    std::uint32_t max_context, models::qwen_iq::vision::ImageCache& image_cache) {
   const bool has_images = std::ranges::any_of(
       request.messages, [](const auto& m) { return !m.images.empty(); });
   const auto options = QwenChatOptions(request, max_context);
-  auto prompt = std::make_shared<models::qwen::vision::Prompt>(
-      models::qwen::vision::Prepare(
+  auto prompt = std::make_shared<models::qwen_iq::vision::Prompt>(
+      models::qwen_iq::vision::Prepare(
           tokenizer, request.messages,
           request.tool_choice == ChatRequest::ToolChoice::kNone
-              ? std::span<const tokenization::ChatTool>{}
-              : std::span<const tokenization::ChatTool>{request.tools},
+              ? std::span<const tokenization_iq::ChatTool>{}
+              : std::span<const tokenization_iq::ChatTool>{request.tools},
           options,
           encoder && has_images ? encoder->identity() : std::string_view{},
           max_context, request.cache_prompt ? &image_cache : nullptr));
@@ -151,7 +151,7 @@ TextPreparedPrompt PrepareQwenPrompt(
   return {prompt->tokens, std::move(context), cache_prefix};
 }
 
-std::shared_ptr<const models::qwen::vision::Prompt> QwenPrompt(
+std::shared_ptr<const models::qwen_iq::vision::Prompt> QwenPrompt(
     const std::shared_ptr<const TextPromptContext>& context) {
   if (!context)
     return {};
@@ -361,11 +361,11 @@ public:
 
   [[nodiscard]] std::optional<std::vector<TextRunnerToken>> RenderAndTokenize(
       const ChatRequest& request) const override {
-    return tokenization::QwenChatTemplate::RenderAndTokenize(
+    return tokenization_iq::QwenChatTemplate::RenderAndTokenize(
         model_->tokenizer(), request.messages,
         request.tool_choice == ChatRequest::ToolChoice::kNone
-            ? std::span<const tokenization::ChatTool>{}
-            : std::span<const tokenization::ChatTool>{request.tools},
+            ? std::span<const tokenization_iq::ChatTool>{}
+            : std::span<const tokenization_iq::ChatTool>{request.tools},
         QwenChatOptions(request, max_context_));
   }
 
@@ -747,7 +747,7 @@ private:
     return count;
   }
 
-  mutable models::qwen::vision::ImageCache image_cache_;
+  mutable models::qwen_iq::vision::ImageCache image_cache_;
   std::shared_ptr<QwenFlashNextModel> model_;
   std::uint32_t max_context_;
   bool use_mtp_;

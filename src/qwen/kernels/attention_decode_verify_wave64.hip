@@ -10,7 +10,7 @@
 #include "qwen/kernels/attention_decode_split_k.hpp"
 #include "qwen/kernels/attention_decode_verify_wave64.hpp"
 
-namespace gufo::hip::detail {
+namespace gufo::hip_iq::detail {
 namespace {
 
 // Verification rows > 1 in wave64: two KV heads, twelve query heads of
@@ -121,5 +121,5 @@ void LaunchVerifySplitKAttentionHalfPartialsWave64(
       num_heads, num_kv_heads, splits);
 }
 
-}  // namespace gufo::hip::detail
+}  // namespace gufo::hip_iq::detail
 #endif  // defined(ENGINE_ENABLE_HIP)

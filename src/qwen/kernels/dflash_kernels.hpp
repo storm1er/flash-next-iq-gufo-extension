@@ -10,7 +10,7 @@
 #if defined(ENGINE_ENABLE_HIP)
 #include <hip/hip_runtime.h>
 
-namespace gufo::hip::kernels {
+namespace gufo::hip_iq::kernels {
 
 void LaunchDFlashGroupedDynamicConv(
     const float* input, const float* dynamic_coefficients,
@@ -134,7 +134,7 @@ void LaunchDFlashDraftTableLogits(const float* source, std::uint32_t stride,
                                   std::uint32_t rows, std::uint32_t table_rows,
                                   hipStream_t stream);
 
-}  // namespace gufo::hip::kernels
+}  // namespace gufo::hip_iq::kernels
 #endif  // defined(ENGINE_ENABLE_HIP)
 
 #endif  // GUFO_MODELS_QWEN_HIP_KERNELS_DFLASH_KERNELS_HPP_

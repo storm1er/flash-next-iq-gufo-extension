@@ -7,7 +7,7 @@
 
 #include "qwen/kernels/ops/norm_residual.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 __global__ void ResidualAddKernel(const float* __restrict__ a,
                                   const float* __restrict__ b,
@@ -25,5 +25,5 @@ void LaunchResidualAdd(const float* a, const float* b, float* out,
   ResidualAddKernel<<<grid_size, block_size, 0, stream>>>(a, b, out, dim);
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif

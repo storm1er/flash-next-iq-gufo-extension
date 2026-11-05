@@ -13,7 +13,7 @@
 #include "qwen/hip_common/gemm_route.hpp"
 #include "qwen/kernels/ops/gemm.hpp"
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 template<std::uint32_t WavesPerBlock>
 __launch_bounds__(WavesPerBlock * 32, 4) __global__
@@ -146,14 +146,14 @@ __global__ void FastGEMVBlockKernel(const void* __restrict__ A,
 
 namespace {
 
-void ExecuteDenseGemv(models::qwen::QwenGemmRoute route, const void* A,
+void ExecuteDenseGemv(models::qwen_iq::QwenGemmRoute route, const void* A,
                       core::GgmlType a_type, const float* x, float* y,
                       std::size_t M, std::size_t K, hipStream_t stream) {
   constexpr std::uint32_t kWavesPerBlock = 4;
   constexpr std::uint32_t kBlockThreads = kWavesPerBlock * 32;
-  if (route == models::qwen::QwenGemmRoute::kHipBf16Wave32Single) {
-    detail::EmitGemvDispatch(M, K, true,
-                             models::qwen::QwenGemmRouteName(route));
+  if (route == models::qwen_iq::QwenGemmRoute::kHipBf16Wave32Single) {
+    gufo::hip::detail::EmitGemvDispatch(M, K, true,
+                             models::qwen_iq::QwenGemmRouteName(route));
     const auto* A_bf16 = static_cast<const hip_bfloat16*>(A);
     const std::size_t grid = (M + kWavesPerBlock - 1) / kWavesPerBlock;
     Wave32GEMVKernel_1Row<kWavesPerBlock>
@@ -161,11 +161,11 @@ void ExecuteDenseGemv(models::qwen::QwenGemmRoute route, const void* A,
     return;
   }
 
-  detail::EmitGemvDispatch(M, K, a_type == core::GgmlType::kBF16,
-                           models::qwen::QwenGemmRouteName(route));
+  gufo::hip::detail::EmitGemvDispatch(M, K, a_type == core::GgmlType::kBF16,
+                           models::qwen_iq::QwenGemmRouteName(route));
   const std::size_t block_size =
-      route == models::qwen::QwenGemmRoute::kHipF32Baseline512 ||
-              route == models::qwen::QwenGemmRoute::kHipBf16Baseline512
+      route == models::qwen_iq::QwenGemmRoute::kHipF32Baseline512 ||
+              route == models::qwen_iq::QwenGemmRoute::kHipBf16Baseline512
           ? 512
           : 256;
   FastGEMVBlockKernel<<<M, block_size, 0, stream>>>(A, a_type, x, y, M, K);
@@ -175,18 +175,18 @@ void ExecuteDenseGemv(models::qwen::QwenGemmRoute route, const void* A,
 
 void LaunchGEMV(const void* A, core::GgmlType a_type, const float* x, float* y,
                 std::size_t M, std::size_t K, hipStream_t stream,
-                models::qwen::QwenGemmMode mode) {
-  const auto resolution = models::qwen::ResolveQwenGemmRoute(
+                models::qwen_iq::QwenGemmMode mode) {
+  const auto resolution = models::qwen_iq::ResolveQwenGemmRoute(
       {.type = a_type, .batch_size = 1, .m = M, .k = K, .mode = mode});
   switch (resolution.route) {
-    case models::qwen::QwenGemmRoute::kHipQuantDirect:
+    case models::qwen_iq::QwenGemmRoute::kHipQuantDirect:
       LaunchQ8KBlockGEMV(A, a_type, x, y, M, K, stream);
       return;
-    case models::qwen::QwenGemmRoute::kHipF32Baseline256:
-    case models::qwen::QwenGemmRoute::kHipF32Baseline512:
-    case models::qwen::QwenGemmRoute::kHipBf16Baseline256:
-    case models::qwen::QwenGemmRoute::kHipBf16Baseline512:
-    case models::qwen::QwenGemmRoute::kHipBf16Wave32Single:
+    case models::qwen_iq::QwenGemmRoute::kHipF32Baseline256:
+    case models::qwen_iq::QwenGemmRoute::kHipF32Baseline512:
+    case models::qwen_iq::QwenGemmRoute::kHipBf16Baseline256:
+    case models::qwen_iq::QwenGemmRoute::kHipBf16Baseline512:
+    case models::qwen_iq::QwenGemmRoute::kHipBf16Wave32Single:
       ExecuteDenseGemv(resolution.route, A, a_type, x, y, M, K, stream);
       return;
     default:
@@ -194,5 +194,5 @@ void LaunchGEMV(const void* A, core::GgmlType a_type, const float* x, float* y,
   }
 }
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 #endif

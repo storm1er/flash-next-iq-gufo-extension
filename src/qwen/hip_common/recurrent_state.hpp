@@ -7,7 +7,7 @@
 #include <concepts>
 #include <cstddef>
 
-namespace gufo::hip::detail {
+namespace gufo::hip_iq::detail {
 
 // Call only after the convolution launch has finished reading the old history.
 // Each thread owns one channel; load the short-batch tail from `state_in`,
@@ -59,6 +59,6 @@ __device__ __forceinline__ void StoreRecurrentState4(StateT* row,
   }
 }
 
-}  // namespace gufo::hip::detail
+}  // namespace gufo::hip_iq::detail
 
 #endif  // GUFO_MODELS_QWEN_HIP_DETAIL_RECURRENT_STATE_HPP_

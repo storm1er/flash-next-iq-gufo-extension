@@ -115,14 +115,14 @@ std::shared_ptr<Model> Model::Load(const std::string& model_path,
     return nullptr;
   }
   try {
-    m->vision_ = qwen::vision::Encoder::Open(
+    m->vision_ = qwen_iq::vision::Encoder::Open(
         model_path, options.vision_model_path, c.hidden_size);
   } catch (const std::exception& e) {
     AssignError(error_msg, e.what());
     return nullptr;
   }
   m->tokenizer_ =
-      tokenization::QwenTokenizer::CreateFromGguf(*m->reader_, error_msg);
+      tokenization_iq::QwenTokenizer::CreateFromGguf(*m->reader_, error_msg);
   if (!m->tokenizer_) {
     return nullptr;
   }
@@ -154,17 +154,17 @@ std::shared_ptr<Model> Model::Load(const std::string& model_path,
     return nullptr;
   }
   if (m->mtp_weights_ &&
-      m->device_->output().rows > speculative::kDraftVocabPrefix) {
+      m->device_->output().rows > speculative_iq::kDraftVocabPrefix) {
     std::vector<std::int32_t> specials;
-    for (std::uint32_t id = speculative::kDraftVocabPrefix;
+    for (std::uint32_t id = speculative_iq::kDraftVocabPrefix;
          id < m->device_->output().rows; ++id)
       if (m->tokenizer_->IsSpecialToken(id))
         specials.push_back(static_cast<std::int32_t>(id));
     // A vocabulary with more special tokens than table rows drafts over the
     // full head.
-    if (specials.size() < speculative::kDraftVocabExtraRows) {
+    if (specials.size() < speculative_iq::kDraftVocabExtraRows) {
       m->draft_specials_ = static_cast<std::uint32_t>(specials.size());
-      if (!m->device_->SetDraftVocab(speculative::kDraftVocabPrefix,
+      if (!m->device_->SetDraftVocab(speculative_iq::kDraftVocabPrefix,
                                      std::move(specials), error_msg))
         return nullptr;
       m->draft_subset_ = true;
@@ -222,12 +222,12 @@ std::vector<std::int32_t> Model::Tokenize(std::string_view text) const {
 }
 
 std::string Model::Decode(std::span<const std::int32_t> tokens) const {
-  std::vector<tokenization::TokenId> ids(tokens.begin(), tokens.end());
+  std::vector<tokenization_iq::TokenId> ids(tokens.begin(), tokens.end());
   return tokenizer_->Decode(ids);
 }
 
 std::string Model::TokenText(std::int32_t token) const {
-  return tokenizer_->DecodeTokenCopy(static_cast<tokenization::TokenId>(token));
+  return tokenizer_->DecodeTokenCopy(static_cast<tokenization_iq::TokenId>(token));
 }
 
 std::int32_t Model::EosToken() const noexcept {
@@ -235,7 +235,7 @@ std::int32_t Model::EosToken() const noexcept {
 }
 
 bool Model::IsStopToken(std::int32_t token) const noexcept {
-  return tokenizer_->IsStopToken(static_cast<tokenization::TokenId>(token));
+  return tokenizer_->IsStopToken(static_cast<tokenization_iq::TokenId>(token));
 }
 
 std::uint32_t Model::VocabSize() const noexcept {
@@ -265,9 +265,9 @@ std::size_t Model::ExpandedQ8_0Tensors() const noexcept {
 
 bool Model::InDraftSubset(std::int32_t token) const {
   return token >= 0 &&
-         (static_cast<std::uint32_t>(token) < speculative::kDraftVocabPrefix ||
+         (static_cast<std::uint32_t>(token) < speculative_iq::kDraftVocabPrefix ||
           tokenizer_->IsSpecialToken(
-              static_cast<tokenization::TokenId>(token)));
+              static_cast<tokenization_iq::TokenId>(token)));
 }
 
 std::string Model::ModelName() const {
@@ -323,7 +323,7 @@ Session::Session(std::shared_ptr<Model> model,
       session_(std::move(session)),
       draft_length_(model_->options_.max_draft_tokens,
                     model_->DecodeConcurrency()),
-      draft_vocab_(speculative::kDraftVocabExtraRows -
+      draft_vocab_(speculative_iq::kDraftVocabExtraRows -
                    model_->draft_specials_) {
   logits_.resize(model_->VocabSize());
 }
@@ -393,7 +393,7 @@ void Session::SetCancellationCheck(std::function<bool()> check) {
 }
 
 void Session::ConfigureVision(
-    std::shared_ptr<const qwen::vision::Prompt> prompt) {
+    std::shared_ptr<const qwen_iq::vision::Prompt> prompt) {
   if (continuation_hooks_)
     continuation_hooks_->BeforeExecution();
   const auto identity = prompt ? prompt->IdentityForPrefix(tokens_.size())
@@ -1121,12 +1121,12 @@ bool Session::PrepareDecode(const DecodeRequest& request,
           *session_, exec.YarnLevelFor(tokens_.size() + cap + 1), error_msg)) {
     return false;
   }
-  // Head eligibility is speculative::DraftSubsetAllowed. Sampled cohorts are
+  // Head eligibility is speculative_iq::DraftSubsetAllowed. Sampled cohorts are
   // never jointly planned (DecodeBatchImpl), so a sampled request decides the
   // same way alone and in any batch. A greedy request decoding alone has no
   // peers to delay, so it drafts as on one session. Every request keeps the
   // established length controller and AR backoff.
-  const bool allow_subset = speculative::DraftSubsetAllowed(
+  const bool allow_subset = speculative_iq::DraftSubsetAllowed(
       sampler.config().uses_random_sampling(), model_->DecodeConcurrency(),
       occupancy, batch_drafts.has_value());
   pending->policy_concurrency = MtpPolicyConcurrency(

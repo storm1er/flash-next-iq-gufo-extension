@@ -11,7 +11,7 @@
 #if defined(ENGINE_ENABLE_HIP)
 #include <hip/hip_runtime.h>
 
-namespace gufo::hip {
+namespace gufo::hip_iq {
 
 /// Replay slots an ordinary verification needs. A ring may hold more (a power
 /// of two): a wide single-session verification captures every one of its rows.
@@ -164,7 +164,7 @@ void LaunchBatchedSSMConvRecurrenceRowSplit(
     QwenRecurrentStateStorage state_storage = QwenRecurrentStateStorage::kFp32,
     void* fp16_out = nullptr);
 
-}  // namespace gufo::hip
+}  // namespace gufo::hip_iq
 
 #endif  // defined(ENGINE_ENABLE_HIP)
 
