@@ -96,10 +96,13 @@ jobs:
           docker build -f ext/docker/runtime.Dockerfile \
             -t "$IMAGE:edge" -t "$IMAGE:sha-$short" ext
           # Smoke (no GPU): the baked subset closure alone must satisfy the
-          # binary's loader and print the version.
+          # binary's loader, and the extension's provider must register as
+          # available (jq ships in the runtime image).
           docker run --rm \
             -v "$GITHUB_WORKSPACE/rocm-image/opt-rocm:/opt/rocm:ro" \
-            "$IMAGE:edge" gufo --version | grep -q "Extension API"
+            "$IMAGE:edge" gufo diagnose --section extensions --json |
+            jq -e 'any(.builtExtensions[]; .name == "flash_next_iq") and
+                   any(.providers[]; .id == "flash-next-iq" and .available)'
           docker build -f ext/docker/runtime-rocm.Dockerfile \
             --build-arg BASE="$IMAGE:edge" \
             -t "$IMAGE:edge-rocm" -t "$IMAGE:sha-$short-rocm" \
