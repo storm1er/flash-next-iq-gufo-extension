@@ -7,6 +7,6 @@
 # Trade-off vs the slim image + bind mount: portable to any host whose KFD
 # driver is >= the bundled userspace, at ~600 MB extra image size; the slim
 # variant always matches the host driver exactly.
-ARG BASE=ghcr.io/storm1er/flash-next-iq-gufo-extension:0.30.0-iq.3
+ARG BASE=ghcr.io/storm1er/flash-next-iq-gufo-extension:latest
 FROM ${BASE}
 COPY opt-rocm /opt/rocm

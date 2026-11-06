@@ -1,11 +1,11 @@
 # Build the Gufo binary (upstream at .upstream-rev + this extension) and
 # publish both container variants on every push to main:
 #
-#   <IMAGE>:edge              slim, mount host /opt/rocm read-only
-#   <IMAGE>:edge-rocm         ROCm userspace baked in, no volume
-#   <IMAGE>:sha-<short>[…]    immutable copies of this run
+#   <IMAGE>:latest              slim, mount host /opt/rocm read-only
+#   <IMAGE>:latest-rocm         ROCm userspace baked in, no volume
+#   <IMAGE>:sha-<short>[…]      immutable copies of this run
 #
-# Semver tags and :latest are cut manually from a release. The build runs in
+# Semver tags remain manual stable pins. The build runs in
 # AMD's ROCm 10.0 dev image so the baked userspace matches the production
 # host's core-10.0 driver generation; hipcc compiles without a GPU (the
 # target is fixed to gfx1151 by Gufo's CMakeLists).
@@ -94,17 +94,17 @@ jobs:
           mkdir -p ext/dist
           cp gufo/build/release/gufo ext/dist/gufo
           docker build -f ext/docker/runtime.Dockerfile \
-            -t "$IMAGE:edge" -t "$IMAGE:sha-$short" ext
+            -t "$IMAGE:latest" -t "$IMAGE:sha-$short" ext
           ext/tools/rocm-subset.sh gufo/build/release/gufo /tmp/rocm-image
           docker build -f ext/docker/runtime-rocm.Dockerfile \
-            --build-arg BASE="$IMAGE:edge" \
-            -t "$IMAGE:edge-rocm" -t "$IMAGE:sha-$short-rocm" /tmp/rocm-image
+            --build-arg BASE="$IMAGE:latest" \
+            -t "$IMAGE:latest-rocm" -t "$IMAGE:sha-$short-rocm" /tmp/rocm-image
           # Smoke (no GPU): the ROCm-baked image is self-contained, so it runs
           # as a plain sibling container and must expose the provider.
-          docker run --rm "$IMAGE:edge-rocm" gufo diagnose \
+          docker run --rm "$IMAGE:latest-rocm" gufo diagnose \
             --section extensions --json |
             jq -e 'any(.builtExtensions[]; .name == "flash_next_iq") and
                    any(.providers[]; .id == "flash-next-iq" and .available)'
-          for tag in edge "sha-$short" edge-rocm "sha-$short-rocm"; do
+          for tag in latest "sha-$short" latest-rocm "sha-$short-rocm"; do
             docker push "$IMAGE:$tag"
           done
