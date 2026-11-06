@@ -28,7 +28,9 @@ still resolve to the built-in provider.
   `VENDOR.md` inside).
 - Built and validated against upstream Gufo
   [`2c97b72d`](https://github.com/gufo-org/gufo/tree/2c97b72d8671ddd0c74ae7d517b8cef4ebb78871)
-  (v0.30.0+9), pinned in `flake.nix`.
+  (v0.30.0+9, pinned in `flake.nix`); vendored trees tracked at
+  [`b7cf081d`](https://github.com/gufo-org/gufo/commit/b7cf081d) in
+  `.upstream-rev` (post-#1041 main, used by the published image).
 - Namespace `gufo::models::flash_next_iq`; provider id `flash-next-iq`,
   artifact key `gguf:qwen4exp-iq`.
 
@@ -40,8 +42,11 @@ still resolve to the built-in provider.
   extension-private namespaces (`gufo::hip_iq`, `gufo::models::qwen_iq`,
   `gufo::tokenization_iq`, `fniq_*` kernels), so this extension builds and
   links with the shipped `qwen38_flash_next`/Qwen models in one binary
-  (verified: zero duplicate symbols, IQ checkpoint served through this
-  provider). One caveat remains at file-claim time — see Limitations.
+  (verified: zero duplicate symbols; IQ checkpoints served through this
+  provider in an all-extensions build). Claiming those files needs the
+  upstream probe narrowing from
+  https://github.com/gufo-org/gufo/pull/1041 (merged 2026-11-06; not yet
+  in a release — see Limitations).
 
 ## Build
 
@@ -140,12 +145,14 @@ built-in provider.
   dual projection, 128-row for down) via `Executor::RouteHints`.
 - IQ4_NL wide (128-row) down tiles go through the format-generic
   `RoutedF16GEMMKernel` rather than the specialized byte-block kernel.
-- Provider claiming in a combined binary: the built-in `qwen38_flash_next`
-  probe accepts any `qwen4exp` checkpoint and registers before out-of-tree
-  extensions, so with stock Gufo an IQ checkpoint lands on the built-in and
-  fails with "unsupported format IQ3_S". https://github.com/gufo-org/gufo/pull/1041
-  narrows that probe (verified end-to-end with this extension); until it lands,
-  load IQ checkpoints from a selection without `qwen38_flash_next`.
+- Provider claiming on stock releases: the 0.30-series built-in
+  `qwen38_flash_next` probe accepts any `qwen4exp` checkpoint and registers
+  before out-of-tree extensions, so with a released Gufo an IQ checkpoint
+  lands on the built-in and fails with "unsupported format IQ3_S".
+  https://github.com/gufo-org/gufo/pull/1041 narrows that probe and is
+  merged on `main`; until the next release ships it, load IQ checkpoints
+  from a Gufo built off `main` or from a selection without
+  `qwen38_flash_next`.
 - The vision encoder is inherited unchanged from 0.30.0 and was validated
   only as far as loading (`--mmproj`); image requests follow the built-in
   provider's path.
@@ -165,16 +172,17 @@ transfers, `gufo::speculative::PromptLookup`) stay in core namespaces.
 `tools/vendor.sh` owns the rules:
 
 ```sh
-tools/vendor.sh check /path/to/gufo        # fail if src drifted
+tools/vendor.sh check /path/to/gufo           # fail if src drifted
 tools/vendor.sh revendor /path/to/gufo <rev>  # sync + reapply the delta
-tools/vendor.sh regenerate /path/to/gufo   # re-record the delta from src
+tools/vendor.sh regenerate /path/to/gufo      # re-record the delta from src
 ```
 
-The pinned upstream revision is `.upstream-rev`; the (currently
-documentation-only) delta over upstream+transform is
-`tools/iq-family.patch`. Syncing to a new Gufo release is a pin bump plus
-`revendor`; any upstream change to the core services the family uses shows
-up as an ordinary compile error, never a silent misbind.
+The pinned upstream revision is `.upstream-rev`; `tools/iq-family.patch`
+carries any hand edits over upstream+transform and is currently empty (all
+IQ code lives in this extension's own model/device layer). Syncing to a new
+Gufo release is a pin bump plus `revendor`; any upstream change to the core
+services the family uses shows up as an ordinary compile error, never a
+silent misbind.
 
 ## License
 

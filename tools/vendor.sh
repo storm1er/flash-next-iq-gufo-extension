@@ -89,13 +89,24 @@ stage_current() {
   cp -a "$ROOT/src/testing/compare" "$STAGE/current/src/testing/"
 }
 
+# Apply tools/iq-family.patch if it carries hunks; a header-only (or
+# missing) patch means the vendored trees are verbatim upstream+transform.
+apply_delta() {
+  local dir="$1"
+  if grep -q '^@@' "$PATCH" 2>/dev/null; then
+    ( cd "$dir" && patch -s -p1 --posix -i "$PATCH" )
+  else
+    echo "vendor.sh: no upstream delta recorded; skipping patch"
+  fi
+}
+
 main() {
 case "${1:?usage: vendor.sh <check|regenerate|revendor> <gufo-src> [rev]}" in
 check)
   local gufo_src=${2:?gufo-src} rev=${3:-$(cat "$REV_FILE")}
   clean_tree "$gufo_src" "$rev" "$STAGE/clean"
   stage_current
-  ( cd "$STAGE/clean" && patch -s -p1 --posix -i "$PATCH" ) \
+  apply_delta "$STAGE/clean" \
     || die "tools/iq-family.patch does not apply cleanly to upstream $rev"
   diff -ruN "$STAGE/clean/src" "$STAGE/current/src" \
     || die "src/qwen + src/testing drifted from upstream $rev + transform + patch"
@@ -106,11 +117,12 @@ regenerate)
   clean_tree "$gufo_src" "$rev" "$STAGE/clean"
   stage_current
   ( cd "$STAGE" && diff -ruN clean/src current/src > "$PATCH" ) || true
-  [ -s "$PATCH" ] || die "empty patch: current tree matches upstream?"
-  echo "vendor.sh: wrote $PATCH ($(grep -c '^+++' "$PATCH") files)"
+  grep -q '^@@' "$PATCH" \
+    && echo "vendor.sh: wrote $PATCH ($(grep -c '^+++' "$PATCH") files)" \
+    || echo "vendor.sh: vendored trees are verbatim upstream+transform (empty patch)"
   # Verify round-trip: the regenerated patch must apply to a fresh clean tree.
   clean_tree "$gufo_src" "$rev" "$STAGE/verify"
-  ( cd "$STAGE/verify" && patch -s -p1 --posix -i "$PATCH" ) || die "round-trip: patch failed"
+  apply_delta "$STAGE/verify" || die "round-trip: patch failed"
   diff -ruN "$STAGE/verify/src" "$STAGE/current/src" || die "round-trip: drift after apply"
   echo "$rev" > "$REV_FILE"
   echo "vendor.sh: round-trip verified against upstream $rev"
@@ -118,7 +130,7 @@ regenerate)
 revendor)
   local gufo_src=${2:?gufo-src} rev=${3:-$(cat "$REV_FILE")}
   clean_tree "$gufo_src" "$rev" "$STAGE/verify"
-  ( cd "$STAGE/verify" && patch -p1 --posix -i "$PATCH" ) \
+  apply_delta "$STAGE/verify" \
     || die "tools/iq-family.patch conflicts with $rev: resolve in $STAGE/verify, then copy src/ back"
   echo "vendor.sh: patched tree ready in $STAGE/verify/src (copy over src/ after review)"
   echo "           then run: tools/vendor.sh regenerate $gufo_src $rev"
