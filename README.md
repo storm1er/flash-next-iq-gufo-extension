@@ -100,6 +100,20 @@ versioned directory it points into instead, e.g.
 `gufo` build containing this extension to `dist/gufo` and run
 `docker build -f docker/runtime.Dockerfile .`.
 
+A **ROCm-baked variant** needs no `/opt/rocm` volume: it embeds the host
+userspace closure (HIP, hipBLAS/Lt, rocBLAS + gfx1151 tuning data, ~600 MB
+extra) so the image runs on any host whose KFD driver is at least that old:
+
+```sh
+tools/rocm-subset.sh /path/to/gufo /tmp/rocm-image   # builds /tmp/rocm-image/opt-rocm
+docker build -f docker/runtime-rocm.Dockerfile \
+  -t ghcr.io/storm1er/flash-next-iq-gufo-extension:<tag>-rocm /tmp/rocm-image
+```
+
+Prefer the slim image + bind mount when you want userspace pinned exactly to
+the host driver (e.g. after ROCm upgrades); prefer `-rocm` for portable
+one-line deploys.
+
 ## Usage
 
 ```sh
