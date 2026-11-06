@@ -44,7 +44,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            git ca-certificates cmake ninja-build pkg-config docker.io \
+            git ca-certificates cmake ninja-build pkg-config docker.io jq \
             libicu-dev libcurl4-openssl-dev libssl-dev zlib1g-dev \
             libpng-dev libjpeg-dev libwebp-dev libsndfile1-dev libsoxr-dev \
             libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
@@ -55,12 +55,17 @@ jobs:
 
       - name: Resolve pinned upstream revision
         id: rev
-        run: echo "rev=$(cat ext/.upstream-rev)" >> "$GITHUB_OUTPUT"
+        run: |
+          # .upstream-rev may hold an abbreviated SHA; checkout needs the full
+          # commit SHA (branch/tag refspecs never match an abbreviation).
+          sha=$(curl -fsS "https://api.github.com/repos/gufo-org/gufo/commits/$(cat ext/.upstream-rev)" | jq -r .sha)
+          echo "$sha" | grep -Eq '^[0-9a-f]{40}$'
+          echo "full=$sha" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:
           repository: gufo-org/gufo
-          ref: ${{ steps.rev.outputs.rev }}
+          ref: ${{ steps.rev.outputs.full }}
           path: gufo
 
       - name: Configure (full extension discovery + this extension)
