@@ -76,8 +76,12 @@ jobs:
         working-directory: gufo
         run: |
           cmake --build --preset release --target gufo -j"$(nproc)"
-          # The dev image keeps ROCm userspace under /opt/rocm (no ld.so entry).
-          LD_LIBRARY_PATH=/opt/rocm/lib ./build/release/gufo --version
+          # Gate (no GPU needed): the binary must load against the dev image's
+          # ROCm userspace and register this extension's provider as available.
+          LD_LIBRARY_PATH=/opt/rocm/lib ./build/release/gufo diagnose \
+            --section extensions --json |
+            jq -e 'any(.builtExtensions[]; .name == "flash_next_iq") and
+                   any(.providers[]; .id == "flash-next-iq" and .available)'
 
       - name: Build and push both variants
         shell: bash
@@ -89,24 +93,18 @@ jobs:
             --password-stdin
           mkdir -p ext/dist
           cp gufo/build/release/gufo ext/dist/gufo
-          # Subset inside the workspace: sibling containers resolve volume
-          # paths on the runner host, not inside this job container.
-          ext/tools/rocm-subset.sh gufo/build/release/gufo \
-            "$GITHUB_WORKSPACE/rocm-image"
           docker build -f ext/docker/runtime.Dockerfile \
             -t "$IMAGE:edge" -t "$IMAGE:sha-$short" ext
-          # Smoke (no GPU): the baked subset closure alone must satisfy the
-          # binary's loader, and the extension's provider must register as
-          # available (jq ships in the runtime image).
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE/rocm-image/opt-rocm:/opt/rocm:ro" \
-            "$IMAGE:edge" gufo diagnose --section extensions --json |
-            jq -e 'any(.builtExtensions[]; .name == "flash_next_iq") and
-                   any(.providers[]; .id == "flash-next-iq" and .available)'
+          ext/tools/rocm-subset.sh gufo/build/release/gufo /tmp/rocm-image
           docker build -f ext/docker/runtime-rocm.Dockerfile \
             --build-arg BASE="$IMAGE:edge" \
-            -t "$IMAGE:edge-rocm" -t "$IMAGE:sha-$short-rocm" \
-            "$GITHUB_WORKSPACE/rocm-image"
+            -t "$IMAGE:edge-rocm" -t "$IMAGE:sha-$short-rocm" /tmp/rocm-image
+          # Smoke (no GPU): the ROCm-baked image is self-contained, so it runs
+          # as a plain sibling container and must expose the provider.
+          docker run --rm "$IMAGE:edge-rocm" gufo diagnose \
+            --section extensions --json |
+            jq -e 'any(.builtExtensions[]; .name == "flash_next_iq") and
+                   any(.providers[]; .id == "flash-next-iq" and .available)'
           for tag in edge "sha-$short" edge-rocm "sha-$short-rocm"; do
             docker push "$IMAGE:$tag"
           done
