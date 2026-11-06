@@ -72,8 +72,12 @@ in-tree Qwen models).
 
 A prebuilt runtime image (ubuntu 24.04 base with the extension-built `gufo`)
 is published at `ghcr.io/storm1er/flash-next-iq-gufo-extension:latest`,
-alongside pinned versions (e.g. `0.30.0-iq.1`). ROCm userspace is **not**
-baked in: mount the host's ROCm directory read-only so the image always
+alongside pinned versions (e.g. `0.30.0-iq.1`). Every push to `main` also
+rebuilds both variants against the upstream revision in `.upstream-rev` and
+publishes `edge`/`edge-rocm` plus immutable `sha-<short>` tags
+(`.github/workflows/images.yml`); `:latest` and semver tags are cut
+manually. ROCm userspace is **not** baked in: mount the host's ROCm
+directory read-only so the image always
 matches the host KFD driver (`LD_LIBRARY_PATH=/opt/rocm/lib` is preset).
 
 ```sh

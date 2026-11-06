@@ -1,0 +1,93 @@
+# Build the Gufo binary (upstream at .upstream-rev + this extension) and
+# publish both container variants on every push to main:
+#
+#   <IMAGE>:edge              slim, mount host /opt/rocm read-only
+#   <IMAGE>:edge-rocm         ROCm userspace baked in, no volume
+#   <IMAGE>:sha-<short>[…]    immutable copies of this run
+#
+# Semver tags and :latest are cut manually from a release. The build runs in
+# AMD's ROCm 10.0 dev image so the baked userspace matches the production
+# host's core-10.0 driver generation; hipcc compiles without a GPU (the
+# target is fixed to gfx1151 by Gufo's CMakeLists).
+name: images
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: images
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/storm1er/flash-next-iq-gufo-extension
+
+jobs:
+  images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    container:
+      # Keep in sync with tools/rocm-subset.sh assumptions (per-arch
+      # hipBLASLt/rocBLAS tuning dirs under /opt/rocm/lib).
+      image: rocm/dev-ubuntu-24.04:10.0.0-full
+      options: --user root --volume /var/run/docker.sock:/var/run/docker.sock
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git ca-certificates cmake ninja-build pkg-config docker.io \
+            libicu-dev libcurl4-openssl-dev libssl-dev zlib1g-dev \
+            libpng-dev libjpeg-dev libwebp-dev libsndfile1-dev libsoxr-dev \
+            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
+
+      - uses: actions/checkout@v4
+        with:
+          path: ext
+
+      - name: Resolve pinned upstream revision
+        id: rev
+        run: echo "rev=$(cat ext/.upstream-rev)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: gufo-org/gufo
+          ref: ${{ steps.rev.outputs.rev }}
+          path: gufo
+
+      - name: Configure (full extension discovery + this extension)
+        working-directory: gufo
+        run: cmake --preset release -DGUFO_EXTENSION_DIRS="$GITHUB_WORKSPACE/ext"
+
+      - name: Build gufo
+        working-directory: gufo
+        run: |
+          cmake --build --preset release --target gufo -j"$(nproc)"
+          ./build/release/gufo --version
+
+      - name: Build and push both variants
+        env:
+          REG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          short="${GITHUB_SHA::7}"
+          echo "$REG_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" \
+            --password-stdin
+          mkdir -p ext/dist
+          cp gufo/build/release/gufo ext/dist/gufo
+          docker build -f ext/docker/runtime.Dockerfile \
+            -t "$IMAGE:edge" -t "$IMAGE:sha-$short" ext
+          ext/tools/rocm-subset.sh gufo/build/release/gufo /tmp/rocm-image
+          docker build -f ext/docker/runtime-rocm.Dockerfile \
+            --build-arg BASE="$IMAGE:edge" \
+            -t "$IMAGE:edge-rocm" -t "$IMAGE:sha-$short-rocm" /tmp/rocm-image
+          for tag in edge "sha-$short" edge-rocm "sha-$short-rocm"; do
+            docker push "$IMAGE:$tag"
+          done
