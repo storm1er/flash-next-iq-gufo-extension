@@ -80,6 +80,7 @@ jobs:
           LD_LIBRARY_PATH=/opt/rocm/lib ./build/release/gufo --version
 
       - name: Build and push both variants
+        shell: bash
         env:
           REG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -88,12 +89,21 @@ jobs:
             --password-stdin
           mkdir -p ext/dist
           cp gufo/build/release/gufo ext/dist/gufo
+          # Subset inside the workspace: sibling containers resolve volume
+          # paths on the runner host, not inside this job container.
+          ext/tools/rocm-subset.sh gufo/build/release/gufo \
+            "$GITHUB_WORKSPACE/rocm-image"
           docker build -f ext/docker/runtime.Dockerfile \
             -t "$IMAGE:edge" -t "$IMAGE:sha-$short" ext
-          ext/tools/rocm-subset.sh gufo/build/release/gufo /tmp/rocm-image
+          # Smoke (no GPU): the baked subset closure alone must satisfy the
+          # binary's loader and print the version.
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/rocm-image/opt-rocm:/opt/rocm:ro" \
+            "$IMAGE:edge" gufo --version | grep -q "Extension API"
           docker build -f ext/docker/runtime-rocm.Dockerfile \
             --build-arg BASE="$IMAGE:edge" \
-            -t "$IMAGE:edge-rocm" -t "$IMAGE:sha-$short-rocm" /tmp/rocm-image
+            -t "$IMAGE:edge-rocm" -t "$IMAGE:sha-$short-rocm" \
+            "$GITHUB_WORKSPACE/rocm-image"
           for tag in edge "sha-$short" edge-rocm "sha-$short-rocm"; do
             docker push "$IMAGE:$tag"
           done
