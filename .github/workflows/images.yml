@@ -76,7 +76,8 @@ jobs:
         working-directory: gufo
         run: |
           cmake --build --preset release --target gufo -j"$(nproc)"
-          ./build/release/gufo --version
+          # The dev image keeps ROCm userspace under /opt/rocm (no ld.so entry).
+          LD_LIBRARY_PATH=/opt/rocm/lib ./build/release/gufo --version
 
       - name: Build and push both variants
         env:
