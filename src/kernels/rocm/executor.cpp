@@ -69,6 +69,8 @@ WeightType SmallType(GgmlType type) {
       return WeightType::kF16;
     case GgmlType::kQ8_0:
       return WeightType::kQ8_0;
+    case GgmlType::kIQ4_XS:
+      return WeightType::kIQ4_XS;
     case GgmlType::kF32:
       return WeightType::kF32;
     default:
@@ -2188,6 +2190,22 @@ bool Executor::Experts(const DeviceTensor& w, const float* x,
         rc =
             fniq_mmq_iq4_xs_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
+      case GgmlType::kIQ3_XXS:
+        rc =
+            fniq_mmq_iq3_xxs_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+        break;
+      case GgmlType::kIQ2_S:
+        rc =
+            fniq_mmq_iq2_s_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+        break;
+      case GgmlType::kQ5_0:
+        rc =
+            fniq_mmq_q5_0_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+        break;
+      case GgmlType::kQ2_0:
+        rc =
+            fniq_mmq_q2_0_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
+        break;
       default:
         break;
     }
@@ -2208,7 +2226,8 @@ bool Executor::GatedExperts(const DeviceTensor& a, const DeviceTensor& b,
   if (!MatrixRows(n_tokens) && n_used <= 32 && same_shape &&
       (a.type == GgmlType::kQ4_K || a.type == GgmlType::kQ5_K ||
        a.type == GgmlType::kQ8_0 || a.type == GgmlType::kIQ3_S ||
-       a.type == GgmlType::kIQ4_NL || a.type == GgmlType::kIQ4_XS)) {
+       a.type == GgmlType::kIQ4_NL || a.type == GgmlType::kIQ4_XS ||
+       a.type == GgmlType::kIQ3_XXS || a.type == GgmlType::kIQ2_S)) {
     // The shared expert quantized the same rows (or their producer did).
     const void* ready = ReadyQ8(x, n_tokens, a.cols);
     if ((ready != nullptr

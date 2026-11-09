@@ -127,6 +127,28 @@ __device__ __forceinline__ float RowElement(const void* row, WeightType type,
           static_cast<const void*>(blk + 2))[i % 32];
       return __half2float(d) * static_cast<float>(q);
     }
+    case WeightType::kIQ4_XS: {
+      // block_iq4_xs: f16 d, 16 high scale bits, 4 low scale nibbles and 128
+      // nibble codes per 256 elements. The grid bytes are the same table the
+      // RoutedF16 Iq4Values perm decodes, so the two paths agree to the bit.
+      const std::uint32_t b = i >> 8;
+      const std::uint8_t* blk =
+          static_cast<const std::uint8_t*>(row) + b * 136;
+      const std::uint32_t p = i & 255;
+      const std::uint32_t ib = p >> 5;  // 32-element sub-block
+      const std::uint16_t dh = static_cast<std::uint16_t>(blk[0] | (blk[1] << 8));
+      const std::uint16_t sh = static_cast<std::uint16_t>(blk[2] | (blk[3] << 8));
+      const int ls = ((blk[4 + ib / 2] >> (4 * (ib % 2))) & 0xF) |
+                     (((sh >> (2 * ib)) & 3) << 4);
+      const float dl = __half2float(*reinterpret_cast<const __half*>(&dh)) *
+                       static_cast<float>(ls - 32);
+      const std::uint32_t jj = p & 31;
+      const std::uint8_t code = blk[8 + ib * 16 + (jj & 15)];
+      const std::uint32_t nib = jj < 16 ? (code & 0xF) : (code >> 4);
+      const auto grid = static_cast<int>(
+          static_cast<std::int8_t>(kIq4nlValues[nib >> 3] >> (8 * (nib & 7))));
+      return dl * static_cast<float>(grid);
+    }
   }
   return 0.0f;
 }
@@ -141,6 +163,8 @@ __device__ __forceinline__ std::size_t RowBytes(WeightType type,
       return static_cast<std::size_t>(k) * 2;
     case WeightType::kQ8_0:
       return static_cast<std::size_t>(k / 32) * 34;
+    case WeightType::kIQ4_XS:
+      return static_cast<std::size_t>(k / 256) * 136;
   }
   return 0;
 }

@@ -236,6 +236,10 @@ static constexpr __device__ vec_dot_q_hip_t get_vec_dot_q_hip(ggml_type type) {
         case GGML_TYPE_IQ3_S:   return vec_dot_iq3_s_q8_1;
         case GGML_TYPE_IQ4_NL:  return vec_dot_iq4_nl_q8_1;
         case GGML_TYPE_IQ4_XS:  return vec_dot_iq4_xs_q8_1;
+        case GGML_TYPE_IQ3_XXS: return vec_dot_iq3_xxs_q8_1;
+        case GGML_TYPE_IQ2_S:   return vec_dot_iq2_s_q8_1;
+        case GGML_TYPE_Q5_0:    return vec_dot_q5_0_q8_1;
+        case GGML_TYPE_Q2_0:    return vec_dot_q2_0_q8_1;
         default:                return nullptr;
     }
 }
@@ -250,6 +254,10 @@ static constexpr __host__ __device__ int get_vdr_mmvq(ggml_type type) {
         case GGML_TYPE_IQ3_S:   return VDR_IQ3_S_Q8_1_MMVQ;
         case GGML_TYPE_IQ4_NL:  return VDR_IQ4_NL_Q8_1_MMVQ;
         case GGML_TYPE_IQ4_XS:  return VDR_IQ4_XS_Q8_1_MMVQ;
+        case GGML_TYPE_IQ3_XXS: return VDR_IQ3_XXS_Q8_1_MMVQ;
+        case GGML_TYPE_IQ2_S:   return VDR_IQ2_S_Q8_1_MMVQ;
+        case GGML_TYPE_Q5_0:    return VDR_Q5_0_Q8_1_MMVQ;
+        case GGML_TYPE_Q2_0:    return VDR_Q2_0_Q8_1_MMVQ;
         default:                return 1;
     }
 }
@@ -881,7 +889,9 @@ void mul_mat_vec_moe_dispatch(const void* weights, ggml_type type,
     GGML_ASSERT(!dst_slots || (k == 640 && experts_used == 1 && tokens > 1 &&
                                (type == GGML_TYPE_Q5_1 ||
                                 type == GGML_TYPE_Q8_0 ||
-                                type == GGML_TYPE_IQ4_NL)));
+                                type == GGML_TYPE_IQ4_NL ||
+                                type == GGML_TYPE_Q5_0 ||
+                                type == GGML_TYPE_Q2_0)));
     switch (type) {
         case GGML_TYPE_Q5_1:
           // Down projection slots have independent inputs. Wider row tiles
@@ -949,6 +959,52 @@ void mul_mat_vec_moe_dispatch(const void* weights, ggml_type type,
                                          tokens, experts_used, input_stride,
                                          stream);
             break;
+        case GGML_TYPE_IQ3_XXS:
+            launch_moe<GGML_TYPE_IQ3_XXS>(weights, input, ids, output, k, rows,
+                                          tokens, experts_used, input_stride,
+                                          stream);
+            break;
+        case GGML_TYPE_IQ2_S:
+            launch_moe<GGML_TYPE_IQ2_S>(weights, input, ids, output, k, rows,
+                                        tokens, experts_used, input_stride,
+                                        stream);
+            break;
+        case GGML_TYPE_Q5_0:
+          // Down projection slots have independent inputs, as for Q5_1 and
+          // IQ4_NL: wider row tiles reuse each short input.
+          if (k == 640 && experts_used == 1 && tokens > 1) {
+            if (tokens > 20) {
+              launch_moe<GGML_TYPE_Q5_0, 8>(
+                  weights, input, ids, output, k, rows, tokens, experts_used,
+                  input_stride, stream, dst_slots);
+            } else {
+              launch_moe<GGML_TYPE_Q5_0, 4>(
+                  weights, input, ids, output, k, rows, tokens, experts_used,
+                  input_stride, stream, dst_slots);
+            }
+            break;
+          }
+            launch_moe<GGML_TYPE_Q5_0>(weights, input, ids, output, k, rows,
+                                       tokens, experts_used, input_stride,
+                                       stream);
+            break;
+        case GGML_TYPE_Q2_0:
+          if (k == 640 && experts_used == 1 && tokens > 1) {
+            if (tokens > 20) {
+              launch_moe<GGML_TYPE_Q2_0, 8>(
+                  weights, input, ids, output, k, rows, tokens, experts_used,
+                  input_stride, stream, dst_slots);
+            } else {
+              launch_moe<GGML_TYPE_Q2_0, 4>(
+                  weights, input, ids, output, k, rows, tokens, experts_used,
+                  input_stride, stream, dst_slots);
+            }
+            break;
+          }
+            launch_moe<GGML_TYPE_Q2_0>(weights, input, ids, output, k, rows,
+                                       tokens, experts_used, input_stride,
+                                       stream);
+            break;
         default: GGML_ABORT("unsupported vector weight format");
     }
 }
@@ -961,7 +1017,8 @@ void mul_mat_vec_moe_gated(const void* gate, const void* up, ggml_type type,
   GGML_ASSERT(tokens > 0 && tokens <= MMVQ_MAX_ROUTED_BATCH);
   if (tokens > MMVQ_MAX_BATCH_SIZE) {
     GGML_ASSERT((type == GGML_TYPE_Q4_K || type == GGML_TYPE_IQ3_S ||
-                 type == GGML_TYPE_IQ4_XS) &&
+                 type == GGML_TYPE_IQ4_XS || type == GGML_TYPE_IQ3_XXS ||
+                 type == GGML_TYPE_IQ2_S) &&
                 groups && experts_used <= 32);
     group_moe_batch<<<(tokens * experts_used + 127) / 128, 128, 0, stream>>>(
         ids, groups, tokens, experts_used);
@@ -996,6 +1053,14 @@ void mul_mat_vec_moe_gated(const void* gate, const void* up, ggml_type type,
       launch_moe_grouped<GGML_TYPE_IQ4_NL>(gate, up, input, groups, output, k,
                                            rows, tokens, experts_used,
                                            input_stride, stream);
+    } else if (type == GGML_TYPE_IQ3_XXS) {
+      launch_moe_grouped<GGML_TYPE_IQ3_XXS>(gate, up, input, groups, output, k,
+                                            rows, tokens, experts_used,
+                                            input_stride, stream);
+    } else if (type == GGML_TYPE_IQ2_S) {
+      launch_moe_grouped<GGML_TYPE_IQ2_S>(gate, up, input, groups, output, k,
+                                          rows, tokens, experts_used,
+                                          input_stride, stream);
     } else {
       GGML_ASSERT(type == GGML_TYPE_Q5_K);
       launch_moe_grouped<GGML_TYPE_Q5_K>(gate, up, input, groups, output, k,
@@ -1025,6 +1090,14 @@ void mul_mat_vec_moe_gated(const void* gate, const void* up, ggml_type type,
         rows * experts_used, rows * row_stride, rows, 1, experts_used, up);
   } else if (type == GGML_TYPE_IQ4_NL) {
     mul_mat_vec_q_moe<GGML_TYPE_IQ4_NL, 2, true><<<grid, block, 0, stream>>>(
+        gate, input, ids, output, k, rows, row_stride, input_stride,
+        rows * experts_used, rows * row_stride, rows, 1, experts_used, up);
+  } else if (type == GGML_TYPE_IQ3_XXS) {
+    mul_mat_vec_q_moe<GGML_TYPE_IQ3_XXS, 2, true><<<grid, block, 0, stream>>>(
+        gate, input, ids, output, k, rows, row_stride, input_stride,
+        rows * experts_used, rows * row_stride, rows, 1, experts_used, up);
+  } else if (type == GGML_TYPE_IQ2_S) {
+    mul_mat_vec_q_moe<GGML_TYPE_IQ2_S, 2, true><<<grid, block, 0, stream>>>(
         gate, input, ids, output, k, rows, row_stride, input_stride,
         rows * experts_used, rows * row_stride, rows, 1, experts_used, up);
   } else {

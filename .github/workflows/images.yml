@@ -68,6 +68,13 @@ jobs:
           ref: ${{ steps.rev.outputs.full }}
           path: gufo
 
+      - name: Apply upstream Q2_0 core overlay
+        working-directory: gufo
+        # GGML Q2_0 core support (reader sizes + CPU dequant) is not merged
+        # upstream yet; the checkpoint's blk.8/blk.10 ffn_down_exps use it.
+        # Drop this step once .upstream-rev contains the upstream Q2_0 commit.
+        run: git apply ../ext/tools/upstream-core-q2_0.patch
+
       - name: Configure (full extension discovery + this extension)
         working-directory: gufo
         run: cmake --preset release -DGUFO_EXTENSION_DIRS="$GITHUB_WORKSPACE/ext"

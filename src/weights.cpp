@@ -25,12 +25,20 @@ struct Format {
       return {1, 2};
     case GgmlType::kQ8_0:
       return {32, 34};
+    case GgmlType::kQ5_0:
+      return {32, 22};
     case GgmlType::kQ5_1:
       return {32, 24};
     case GgmlType::kIQ4_NL:
       return {32, 18};
+    case GgmlType::kQ2_0:
+      return {64, 18};
     case GgmlType::kIQ3_S:
       return {256, 110};
+    case GgmlType::kIQ2_S:
+      return {256, 82};
+    case GgmlType::kIQ3_XXS:
+      return {256, 98};
     case GgmlType::kIQ4_XS:
       return {256, 136};
     case GgmlType::kQ4_K:
@@ -143,10 +151,11 @@ struct Binder {
     const std::uint64_t hidden = c.hidden_size;
     const std::uint64_t hc_dim = c.HcDim();
     const auto dense = {GgmlType::kQ8_0, GgmlType::kBF16, GgmlType::kF16,
-                        GgmlType::kF32};
+                        GgmlType::kF32,  GgmlType::kQ6_K};
     const auto experts = {GgmlType::kQ4_K,   GgmlType::kQ5_K,  GgmlType::kQ6_K,
                           GgmlType::kQ5_1,   GgmlType::kQ8_0,  GgmlType::kIQ3_S,
-                          GgmlType::kIQ4_XS, GgmlType::kIQ4_NL};
+                          GgmlType::kIQ4_XS, GgmlType::kIQ4_NL, GgmlType::kIQ3_XXS,
+                          GgmlType::kIQ2_S,  GgmlType::kQ5_0,  GgmlType::kQ2_0};
 
     l.hc_attn = Mixer(p + "hc_attn", c, true);
     l.hc_ffn = Mixer(p + "hc_ffn", c, true);
@@ -200,7 +209,12 @@ struct Binder {
       l.ple_norm_conv =
           Get(p + "ple_norm_conv.weight", hc_dim, 1, 1, {GgmlType::kF32});
       l.ple_conv1d = Get(p + "ple_conv1d.weight", c.ple_conv_kernel, hc_dim, 1,
-                         {GgmlType::kF32});
+                         {GgmlType::kF32}, /*required=*/false);
+      if (l.ple_conv1d.data == nullptr) {
+        // The 2026-11 Unsloth export renames the PLE conv to `ple_convNd`.
+        l.ple_conv1d = Get(p + "ple_convNd.weight", c.ple_conv_kernel, hc_dim,
+                           1, {GgmlType::kF32});
+      }
     }
 
     l.router = Get(p + "ffn_gate_inp.weight", hidden, c.num_experts, 1,
@@ -253,8 +267,10 @@ std::optional<ModelWeights> ModelWeights::Bind(const core::GgufReader& reader,
   ModelWeights w;
   w.config = *config;
   const Config& c = w.config;
+  // IQ4_XS joins the dense list for the 2026-11 UD re-release's quantized
+  // token_embd; the scalar RowElement path decodes it inline.
   const auto dense = {GgmlType::kQ8_0, GgmlType::kQ6_K, GgmlType::kBF16,
-                      GgmlType::kF16, GgmlType::kF32};
+                      GgmlType::kF16, GgmlType::kF32, GgmlType::kIQ4_XS};
 
   {
     // The vocabulary is the embedding row count; no metadata key carries it.

@@ -1,0 +1,90 @@
+diff --git a/src/core/gguf_reader.hpp b/src/core/gguf_reader.hpp
+index be79628a..6ec3d1a7 100644
+--- a/src/core/gguf_reader.hpp
++++ b/src/core/gguf_reader.hpp
+@@ -46,6 +46,7 @@ enum class GgmlType : std::uint16_t {
+   kI32 = 26,
+   kIQ1_M = 29,
+   kBF16 = 30,
++  kQ2_0 = 42,
+ };
+ 
+ [[nodiscard]] constexpr std::string_view ToString(GgmlType type) noexcept {
+@@ -100,6 +101,8 @@ enum class GgmlType : std::uint16_t {
+       return "IQ1_M";
+     case GgmlType::kBF16:
+       return "BF16";
++    case GgmlType::kQ2_0:
++      return "Q2_0";
+   }
+   return "UNKNOWN";
+ }
+diff --git a/src/core/quant/ggml_dequant.cpp b/src/core/quant/ggml_dequant.cpp
+index a8263aa1..9e112509 100644
+--- a/src/core/quant/ggml_dequant.cpp
++++ b/src/core/quant/ggml_dequant.cpp
+@@ -231,6 +231,11 @@ std::size_t QuantizedRowBytes(core::GgmlType type,
+     case core::GgmlType::kIQ3_S:
+       block_bytes = sizeof(block_iq3_s);
+       break;
++    case core::GgmlType::kQ2_0:
++      // GGML Q2_0: 64 elements per block — f16 scale + 16 bytes of 2-bit
++      // codes (00=-1, 01=0, 10=+1, 11=+2).
++      block_bytes = 18;
++      break;
+     default:
+       return 0;
+   }
+@@ -671,6 +676,21 @@ void DequantizeIQ3_S(const void* src, float* dst, std::size_t k) {
+   }
+ }
+ 
++void DequantizeQ2_0(const void* src, float* dst, std::size_t k) {
++  const auto* bytes = static_cast<const std::uint8_t*>(src);
++  const std::size_t nb = k / 64;
++  for (std::size_t b = 0; b < nb; ++b) {
++    std::uint16_t dh = 0;
++    std::memcpy(&dh, bytes + b * 18, sizeof(dh));
++    const float d = Fp16ToFloat(dh);
++    for (std::size_t i = 0; i < 64; ++i) {
++      const std::uint8_t byte = bytes[b * 18 + 2 + i / 4];
++      const std::uint8_t q = (byte >> ((i % 4) * 2)) & 0x3U;
++      dst[b * 64 + i] = static_cast<float>(static_cast<int>(q) - 1) * d;
++    }
++  }
++}
++
+ float DotProductIQ4_NL(const void* row_data, std::span<const float> vec,
+                        std::size_t k) {
+   const auto* blocks = static_cast<const block_iq4_nl*>(row_data);
+@@ -1093,6 +1113,9 @@ bool DequantizeRow(core::GgmlType type, const void* src, float* dst,
+     case core::GgmlType::kIQ4_XS:
+       DequantizeIQ4_XS(src, dst, k);
+       return true;
++    case core::GgmlType::kQ2_0:
++      DequantizeQ2_0(src, dst, k);
++      return true;
+     default:
+       return false;
+   }
+diff --git a/src/core/quant/ggml_dequant.hpp b/src/core/quant/ggml_dequant.hpp
+index 893ba9c6..c70451fa 100644
+--- a/src/core/quant/ggml_dequant.hpp
++++ b/src/core/quant/ggml_dequant.hpp
+@@ -117,6 +117,8 @@ inline constexpr std::int8_t kValuesIq4Nl[16] = {
+     case core::GgmlType::kQ8_0:
+     case core::GgmlType::kIQ4_NL:
+       return 32;
++    case core::GgmlType::kQ2_0:
++      return 64;
+     case core::GgmlType::kQ2_K:
+     case core::GgmlType::kIQ2_XXS:
+     case core::GgmlType::kIQ2_XS:
+@@ -186,6 +188,7 @@ void DequantizeQ5_1(const void* src, float* dst, std::size_t k);
+ 
+ // Dequantize row of IQ4_NL to float
+ void DequantizeIQ4_NL(const void* src, float* dst, std::size_t k);
++void DequantizeQ2_0(const void* src, float* dst, std::size_t k);
+ 
+ // Dequantize row of IQ4_XS to float
+ void DequantizeIQ4_XS(const void* src, float* dst, std::size_t k);

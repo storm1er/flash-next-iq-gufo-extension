@@ -1,5 +1,5 @@
-// Batched Q4_K/IQ3_S/IQ4_XS experts share one wave64 while retaining 32-lane
-// dot reductions.
+// Batched Q4_K/IQ3_S/IQ4_XS/IQ3_XXS/IQ2_S experts share one wave64 while
+// retaining 32-lane dot reductions.
 #include "fniq_mmq_prelude.h"
 namespace fniq_mmq {
 #include "mmvq.hpp"
@@ -23,10 +23,15 @@ __launch_bounds__(64) static __global__ void mul_mat_vec_moe_batch(
     constexpr int qi = ggml_hip_type_traits<type>::qi;
     constexpr int vdr = q4                        ? VDR_Q4_K_Q8_1_MMVQ
                         : type == GGML_TYPE_IQ3_S ? VDR_IQ3_S_Q8_1_MMVQ
+                        : type == GGML_TYPE_IQ3_XXS
+                            ? VDR_IQ3_XXS_Q8_1_MMVQ
+                        : type == GGML_TYPE_IQ2_S ? VDR_IQ2_S_Q8_1_MMVQ
                                                   : VDR_IQ4_XS_Q8_1_MMVQ;
     constexpr int blocks_per_iter = vdr * 32 / qi;
     constexpr auto dot = q4                        ? vec_dot_q4_K_q8_1
                          : type == GGML_TYPE_IQ3_S ? vec_dot_iq3_s_q8_1
+                         : type == GGML_TYPE_IQ3_XXS ? vec_dot_iq3_xxs_q8_1
+                         : type == GGML_TYPE_IQ2_S ? vec_dot_iq2_s_q8_1
                                                    : vec_dot_iq4_xs_q8_1;
     const int tid = threadIdx.x;
     const int lane = tid % 32;
@@ -165,6 +170,16 @@ void mul_mat_vec_moe_batch_wave64(const void* gate, const void* up,
       launch_moe_batch<GGML_TYPE_IQ4_XS>(gate, up, input, groups, output, k,
                                          rows, experts_used, input_stride,
                                          stream);
+      break;
+    case GGML_TYPE_IQ3_XXS:
+      launch_moe_batch<GGML_TYPE_IQ3_XXS>(gate, up, input, groups, output, k,
+                                          rows, experts_used, input_stride,
+                                          stream);
+      break;
+    case GGML_TYPE_IQ2_S:
+      launch_moe_batch<GGML_TYPE_IQ2_S>(gate, up, input, groups, output, k,
+                                        rows, experts_used, input_stride,
+                                        stream);
       break;
     default:
       GGML_ABORT("unsupported batched gate/up weight format");

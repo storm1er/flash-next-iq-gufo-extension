@@ -11,9 +11,27 @@ bool ProbeFlashNextGguf(const core::GgufReader& reader) {
   if (architecture != "qwen4exp") {
     return false;
   }
-  // This extension owns only the IQ-quantized routed-expert targets
-  // (Unsloth UD-IQ4_XS: IQ3_S/IQ4_XS/IQ4_NL experts). Every other Flash-Next
-  // layout, including UD-Q4_K_XL, belongs to the built-in flash-next provider.
+  // This extension owns checkpoints whose routed experts use IQ-family or
+  // narrow-bit targets (Unsloth UD: IQ3_S/IQ4_XS/IQ4_NL, and the 2026-11
+  // re-release mixing IQ3_XXS/IQ2_S + Q5_0/IQ4_NL/Q2_0). Every layout whose
+  // experts use the K-quant/Q5_1/Q8_0 targets — including UD-Q4_K_XL —
+  // belongs to the built-in flash-next provider.
+  static constexpr core::GgmlType kOwned[] = {
+      core::GgmlType::kIQ3_S,   core::GgmlType::kIQ4_XS, core::GgmlType::kIQ4_NL,
+      core::GgmlType::kIQ3_XXS, core::GgmlType::kIQ2_S,  core::GgmlType::kQ5_0,
+      core::GgmlType::kQ2_0};
+  static constexpr core::GgmlType kBuiltin[] = {
+      core::GgmlType::kQ4_K, core::GgmlType::kQ5_K, core::GgmlType::kQ6_K,
+      core::GgmlType::kQ5_1, core::GgmlType::kQ8_0};
+  auto in = [](const core::GgmlType* set, std::size_t n, core::GgmlType t) {
+    for (std::size_t i = 0; i < n; ++i) {
+      if (set[i] == t) {
+        return true;
+      }
+    }
+    return false;
+  };
+  bool saw_expert = false;
   for (const auto& tensor : reader.GetTensors()) {
     const auto name = tensor.name;
     if (name.find("ffn_gate_exps.") == std::string_view::npos &&
@@ -21,11 +39,15 @@ bool ProbeFlashNextGguf(const core::GgufReader& reader) {
         name.find("ffn_down_exps.") == std::string_view::npos) {
       continue;
     }
-    return tensor.type == core::GgmlType::kIQ3_S ||
-           tensor.type == core::GgmlType::kIQ4_XS ||
-           tensor.type == core::GgmlType::kIQ4_NL;
+    if (in(kBuiltin, std::size(kBuiltin), tensor.type)) {
+      return false;
+    }
+    if (!in(kOwned, std::size(kOwned), tensor.type)) {
+      return false;
+    }
+    saw_expert = true;
   }
-  return false;
+  return saw_expert;
 }
 
 std::optional<sampling::TextSamplingDefaults> FlashNextSamplingDefaults() {

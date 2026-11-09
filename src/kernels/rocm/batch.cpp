@@ -47,6 +47,8 @@ WeightType EmbeddingType(core::GgmlType type) {
       return WeightType::kF16;
     case core::GgmlType::kQ8_0:
       return WeightType::kQ8_0;
+    case core::GgmlType::kIQ4_XS:
+      return WeightType::kIQ4_XS;
     case core::GgmlType::kF32:
       return WeightType::kF32;
     default:
@@ -781,7 +783,9 @@ bool Executor::MoeBatch(const DeviceLayer& l, const float* x, float* out,
   const auto gate_type = l.ffn_gate_exps.type;
   if ((gate_type == core::GgmlType::kQ4_K ||
        gate_type == core::GgmlType::kIQ3_S ||
-       gate_type == core::GgmlType::kIQ4_XS) &&
+       gate_type == core::GgmlType::kIQ4_XS ||
+       gate_type == core::GgmlType::kIQ3_XXS ||
+       gate_type == core::GgmlType::kIQ2_S) &&
       l.ffn_up_exps.type == gate_type) {
     // Share expert weights across request boundaries while retaining the
     // scalar Q8 activation quantization and dot-product reduction.

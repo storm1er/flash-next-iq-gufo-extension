@@ -76,6 +76,14 @@ struct Format {
 
 const Format kIQ3_S{
     GgmlType::kIQ3_S, "IQ3_S", 256, 110, 0, gufo::quant::DequantizeIQ3_S};
+const Format kIQ3_XXS{
+    GgmlType::kIQ3_XXS, "IQ3_XXS", 256, 98, 0, gufo::quant::DequantizeIQ3_XXS};
+const Format kIQ2_S{
+    GgmlType::kIQ2_S, "IQ2_S", 256, 82, 0, gufo::quant::DequantizeIQ2_S};
+const Format kQ5_0{
+    GgmlType::kQ5_0, "Q5_0", 32, 22, 0, gufo::quant::DequantizeQ5_0};
+const Format kQ2_0{
+    GgmlType::kQ2_0, "Q2_0", 64, 18, 0, gufo::quant::DequantizeQ2_0};
 const Format kIQ4_NL{
     GgmlType::kIQ4_NL, "IQ4_NL", 32, 18, 0, gufo::quant::DequantizeIQ4_NL};
 const Format kIQ4_XS{
@@ -227,6 +235,8 @@ void CheckRouted(const Format& f, int rows, int cols, int tokens, int used) {
   for (int n : gated_widths) {
     if (n > tokens)
       break;
+    if (f.type == GgmlType::kQ5_0 || f.type == GgmlType::kQ2_0)
+      break;  // Down-only formats: the gated route rejects them by design.
     Expect(!fniq_mmq_moe_gated_vec(type, wa, wb, dx, di, out, rows, cols, n,
                                   experts, used, nullptr),
            tag + ": gated vector launch failed");
@@ -240,6 +250,10 @@ void CheckRouted(const Format& f, int rows, int cols, int tokens, int used) {
   using Raw = int (*)(const void*, const float*, const std::int32_t*, float*,
                       int, int, int, int, int, hipStream_t);
   const Raw raw = f.type == GgmlType::kIQ3_S    ? fniq_mmq_iq3_s_moe_raw
+                  : f.type == GgmlType::kIQ3_XXS ? fniq_mmq_iq3_xxs_moe_raw
+                  : f.type == GgmlType::kIQ2_S   ? fniq_mmq_iq2_s_moe_raw
+                  : f.type == GgmlType::kQ5_0    ? fniq_mmq_q5_0_moe_raw
+                  : f.type == GgmlType::kQ2_0    ? fniq_mmq_q2_0_moe_raw
                   : f.type == GgmlType::kIQ4_NL ? fniq_mmq_iq4_nl_moe_raw
                                                 : fniq_mmq_iq4_xs_moe_raw;
   CheckHip(hipMemset(out, 0, count * sizeof(float)), "clear MMQ output");
@@ -320,10 +334,16 @@ int main() {
       CheckRouted(kIQ3_S, rows, 2560, 33, 3);
       CheckRouted(kIQ4_XS, rows, 2560, 33, 3);
       CheckRouted(kIQ4_NL, rows, 2560, 33, 3);
+      CheckRouted(kIQ3_XXS, rows, 2560, 33, 3);
+      CheckRouted(kIQ2_S, rows, 2560, 33, 3);
     }
     // Down view: one slot per row, K 640.
     CheckRouted(kIQ4_NL, 2560, 640, 40, 1);
     CheckRouted(kIQ4_NL, 2561, 640, 9, 1);
+    CheckRouted(kQ5_0, 2560, 640, 40, 1);
+    CheckRouted(kQ5_0, 2561, 640, 9, 1);
+    CheckRouted(kQ2_0, 2560, 640, 40, 1);
+    CheckRouted(kQ2_0, 2561, 640, 9, 1);
     CheckQ6KHead(300, 2560);
     CheckQ6KHead(301, 2560);
   } catch (const std::exception& e) {
