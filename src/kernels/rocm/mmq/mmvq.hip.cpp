@@ -856,6 +856,14 @@ void mul_mat_vec_dense_dispatch(const void* weights, ggml_type type,
       launch_dense<GGML_TYPE_Q6_K>(weights, input, output, k, rows, tokens,
                                    input_stride, stream);
       break;
+    case GGML_TYPE_Q4_K:
+      launch_dense<GGML_TYPE_Q4_K>(weights, input, output, k, rows, tokens,
+                                   input_stride, stream);
+      break;
+    case GGML_TYPE_Q5_0:
+      launch_dense<GGML_TYPE_Q5_0>(weights, input, output, k, rows, tokens,
+                                   input_stride, stream);
+      break;
     default:
       GGML_ABORT("unsupported dense vector weight format");
   }

@@ -21,8 +21,8 @@ docker run --rm --device /dev/kfd --device /dev/dri \
   -v /path/to/model-snapshot:/models:ro -p 8080:8080 \
   ghcr.io/storm1er/flash-next-iq-gufo-extension:latest \
   gufo serve --host 0.0.0.0 --port 8080 llm \
-    --model /models/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf \
-    --speculative mtp --mtp-model /models/MTP/mtp-Qwen3.8-Flash-Next-Q8_0.gguf \
+    --model /models/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf \
+    --speculative mtp --mtp-model /models/MTP/mtp-Qwen3.8-Flash-Next-Q4_K_M.gguf \
     --mmproj /models/mmproj-BF16.gguf \
     --sessions 2 --context 262144 \
     --served-model-name Qwen3.8-Flash-Next
@@ -107,10 +107,13 @@ LD_LIBRARY_PATH=/opt/rocm/lib ./build/release/extensions/build/flash_next_iq/bui
 Measured on a gfx1151 machine (Nov 2026), production server still resident (both tests allocate only small
 tensors): `iq_ops_test` passes all IQ3_S/IQ4_XS/IQ4_NL vector/MMQ and Q6_K head checks (worst relative error
 ≈ 4.6e-3 against the CPU dequantizers); `routed_wmma_ops_test` passes every IQ tile-row configuration with
-F16-vs-F64 error ≤ 0.53 % of output scale (threshold 2e-3). End-to-end, real UD-IQ4_XS checkpoint + Q8_0 MTP
+F16-vs-F64 error ≤ 0.53 % of output scale (threshold 2e-3). End-to-end, real UD-IQ4_XS checkpoint + Q4_K_M MTP
 draft + BF16 mmproj at 262K context, 2 sessions (cold cache): load 79 s / 80.7 GiB device, decode 51–61 tok/s
 with MTP (draft acceptance 74–85 %), coherent reasoning output, working continuation checkpoints (~269 MiB)
 with shared-prefix reuse; `--mtp-model` and the component cache behave exactly like the built-in provider.
+The November 9, 2026 re-release (four-shard `UD-IQ4_XS` with IQ3_XXS/IQ2_S/Q5_0/Q2_0 experts, Q6_K attention
+and the `Q4_K_M` MTP sidecar) verifies at 32K context, one session: load 11 s warm, prefill 415 tok/s on a
+2.1K-token prompt, decode 30–39 tok/s with MTP (draft acceptance 45–57 %), coherent reasoning output.
 
 ### Vendoring
 
@@ -131,6 +134,9 @@ lives in this extension's own model/device layer). Syncing to a new Gufo release
 - Model sources: Gufo 0.30.0 `src/models/qwen38_flash_next` (MIT), with the IQ3_S/IQ4_XS/IQ4_NL +
   Q6_K work re-applied from the `gufo-iq4_xs` fork
   (https://github.com/johandevlabs/gufo-iq4_xs/compare/b13c2fa6b6abf71266529f2c878e07704f28dfd7...912679bccb9e9b91c6ae4000fc017b83a2c630a7).
+- `Executor::RouteHints` "route staging drain": expert counts are awaited with a full stream drain rather
+  than the download event, adopted from the mikealanni/gufo fork (https://github.com/mikealanni/gufo),
+  which documents this driver defect (events completing while pinned-staging copies are still queued).
 - `src/qwen/`: vendored copy of Gufo's private `src/families/qwen/*` (MIT); the external-extension sandbox
   does not link `gufo_core`/`gufo_qwen_*`, so the family layer is rebuilt as extension-private targets.
 - `src/kernels/rocm/mmq/`: GGML-derived MMQ/MoE kernels (MIT, see the `VENDOR.md` inside).

@@ -132,13 +132,16 @@ struct Binder {
     m.norm = Get(prefix + "_norm.weight", hc_dim, 1, 1, {GgmlType::kF32});
     m.down =
         Get(prefix + "_down.weight", hc_dim, c.hc_low_rank, 1,
-            {GgmlType::kQ8_0, GgmlType::kBF16, GgmlType::kF16, GgmlType::kF32});
+            {GgmlType::kQ8_0, GgmlType::kBF16, GgmlType::kF16, GgmlType::kF32,
+             GgmlType::kQ4_K, GgmlType::kQ6_K});
     m.up =
         Get(prefix + "_up.weight", c.hc_low_rank, hc_dim, 1,
-            {GgmlType::kQ8_0, GgmlType::kBF16, GgmlType::kF16, GgmlType::kF32});
+            {GgmlType::kQ8_0, GgmlType::kBF16, GgmlType::kF16, GgmlType::kF32,
+             GgmlType::kQ5_0});
     if (with_inject) {
       m.inject = Get(prefix + "_inject.weight", hc_dim, c.hc_count, 1,
-                     {GgmlType::kF32, GgmlType::kQ8_0, GgmlType::kBF16});
+                     {GgmlType::kF32, GgmlType::kQ8_0, GgmlType::kBF16,
+                      GgmlType::kQ4_K});
     }
     return m;
   }
@@ -150,8 +153,9 @@ struct Binder {
     const std::string p = "blk." + std::to_string(il) + ".";
     const std::uint64_t hidden = c.hidden_size;
     const std::uint64_t hc_dim = c.HcDim();
-    const auto dense = {GgmlType::kQ8_0, GgmlType::kBF16, GgmlType::kF16,
-                        GgmlType::kF32,  GgmlType::kQ6_K};
+    const auto dense = {GgmlType::kQ8_0,   GgmlType::kBF16, GgmlType::kF16,
+                      GgmlType::kF32,    GgmlType::kQ6_K, GgmlType::kQ4_K,
+                      GgmlType::kQ5_0};
     const auto experts = {GgmlType::kQ4_K,   GgmlType::kQ5_K,  GgmlType::kQ6_K,
                           GgmlType::kQ5_1,   GgmlType::kQ8_0,  GgmlType::kIQ3_S,
                           GgmlType::kIQ4_XS, GgmlType::kIQ4_NL, GgmlType::kIQ3_XXS,

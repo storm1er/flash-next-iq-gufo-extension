@@ -802,7 +802,9 @@ extern "C" int fniq_mmq_dense_vec_preq(int weight_type, const void* W,
                                       const void* X_q8, float* out_f32, int M,
                                       int N, int K, hipStream_t stream) {
   const auto type = static_cast<ggml_type>(weight_type);
-  if (type != GGML_TYPE_Q6_K || !W || !X_q8 || !out_f32 || M <= 0 || N <= 0 ||
+  if ((type != GGML_TYPE_Q6_K && type != GGML_TYPE_Q4_K &&
+       type != GGML_TYPE_Q5_0) ||
+      !W || !X_q8 || !out_f32 || M <= 0 || N <= 0 ||
       N > MMVQ_MAX_BATCH_SIZE || K <= 0 || K % ggml_blck_size(type) != 0) {
     fprintf(stderr,
             "fniq_mmq_dense_vec_preq: bad arguments type=%d M=%d N=%d K=%d\n",

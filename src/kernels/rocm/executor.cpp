@@ -6,6 +6,7 @@
 #include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <gufo/ext/experimental/managed_alloc.hpp>
@@ -1856,12 +1857,14 @@ void Executor::AdoptYarnFactor(Session& s, float factor) {
 
 bool Executor::Dense(const DeviceTensor& w, const Q8Input& q, float* out,
                      std::string* error_msg) const {
-  if (w.type == GgmlType::kQ6_K && q.data != nullptr) {
+  if ((w.type == GgmlType::kQ6_K || w.type == GgmlType::kQ4_K ||
+       w.type == GgmlType::kQ5_0) &&
+      q.data != nullptr) {
     if (w.cols != q.k ||
         fniq_mmq_dense_vec_preq(static_cast<int>(w.type), w.data, q.data, out,
                                static_cast<int>(w.rows), static_cast<int>(q.n),
                                static_cast<int>(w.cols), stream_) != 0) {
-      AssignError(error_msg, "Q6_K GEMV failed");
+      AssignError(error_msg, "dense quantized GEMV failed");
       return false;
     }
     return true;
@@ -1959,10 +1962,13 @@ bool Executor::DenseF16Route(const DeviceTensor& w,
 
 bool Executor::Dense(const DeviceTensor& w, const float* x, float* out,
                      std::uint32_t n_tokens, std::string* error_msg) const {
-  if (w.type == GgmlType::kQ6_K) {
-    // Only the logits head uses Q6_K. Every row keeps the single-row GEMV
-    // arithmetic, so decode, verification and batched heads agree; wider
-    // calls run eight rows per launch.
+  if (w.type == GgmlType::kQ6_K || w.type == GgmlType::kQ4_K ||
+      w.type == GgmlType::kQ5_0) {
+    // Q6_K covers the trunk's attention and the logits head; Q4_K and Q5_0
+    // arrive through the Q4_K_M MTP sidecar's attention, hyperconnected
+    // mixers and eh_proj. Every row keeps the single-row GEMV arithmetic, so
+    // decode, verification and batched heads agree; wider calls run eight
+    // rows per launch.
     for (std::uint32_t r0 = 0; r0 < n_tokens; r0 += kVecBatch) {
       const std::uint32_t rows = std::min(kVecBatch, n_tokens - r0);
       const float* src = x + static_cast<std::size_t>(r0) * w.cols;
@@ -2093,7 +2099,13 @@ bool Executor::RouteHints(std::uint32_t n_tokens, bool paired_wide,
   if (!ExpertMatrixRows(n_tokens)) {
     return true;
   }
-  if (!Check(hipEventSynchronize(counts_ready_), "expert counts", error_msg)) {
+  // The counts download is awaited by the event, but that event has been
+  // observed to complete while related staging copies were still queued on
+  // this driver (opposite-direction copies on the same stream are not
+  // ordered against events). Full stream drain is the only operation
+  // guaranteed to have retired the download before the host buffer is read.
+  // (Approach adopted from the mikealanni/gufo fork, "route staging drain".)
+  if (!Check(hipStreamSynchronize(stream_), "route staging drain", error_msg)) {
     return false;
   }
   // The F16 expert GEMM launches one block per (expert, row tile of its
@@ -2305,8 +2317,15 @@ void Executor::Combine(float* res, const float* gamma, std::uint32_t n_tokens,
   // Wide batches hand the next mixer an F16 norm for its epilogue and the
   // same norm quantized into the tiled Q8 layout for its W8A8 down
   // projection: half the bytes for the combine and the epilogue, and no
-  // separate activation pass for the projection.
-  xn_half_ = wide_mixer_ && MatrixRows(n_tokens) && gamma != nullptr;
+  // separate activation pass for the projection. The next mixer may only
+  // take this route when both of its projections are Q8_0: the F16 route
+  // skips the F32 norm the generic Dense() path reads, and W8A8Gemm would
+  // misread K-quant (or Q4_K sidecar) blocks as int8 rows.
+  const bool next_w8_ok =
+      next == nullptr || (next->down.type == GgmlType::kQ8_0 &&
+                          next->up.type == GgmlType::kQ8_0);
+  xn_half_ =
+      wide_mixer_ && MatrixRows(n_tokens) && gamma != nullptr && next_w8_ok;
   xn_q8_ready_ = {};  // s_.xn is rewritten (or left stale) below
   // The next mixer's inject pass reads only the F16 norm written here.
   const float* fused_inject = xn_half_ && n_tokens >= 96 ? inject_w : nullptr;
@@ -2320,7 +2339,7 @@ void Executor::Combine(float* res, const float* gamma, std::uint32_t n_tokens,
     moe_pending_ = false;
     const auto* down = reinterpret_cast<const __half*>(s_.down_e);
     const float* fused_w = deferred ? fused_inject : nullptr;
-    if (wide_mixer_ && MatrixRows(n_tokens) &&
+    if (wide_mixer_ && next_w8_ok && MatrixRows(n_tokens) &&
         HcCombineMoeF16(
             res, down, s_.weights, s_.shexp_out, s_.router + c.num_experts,
             c.num_experts + 1, c.num_experts_used, s_.inject, inject_parts_,
@@ -3289,6 +3308,12 @@ bool Executor::MoeExperts(const DeviceLayer& l, const float* x, float* out,
                              s_.rows_slot, s_.gate_e, nullptr, up_half,
                              c.expert_ff, c.hidden_size, stream_));
     if (!gated_ok) {
+      std::fprintf(stderr,
+                   "routed gate/up GEMM rejected: gate=%d down=%d n_tokens=%u "
+                   "tile_rows=%u n_tiles=%u wide_tiles=%u\n",
+                   static_cast<int>(gate_format),
+                   static_cast<int>(l.ffn_down_exps.type), n_tokens,
+                   routed_tile_rows_, routed_n_tiles_, routed_wide_tiles_);
       AssignError(error_msg, "routed F16 gate/up GEMM failed");
       return false;
     }

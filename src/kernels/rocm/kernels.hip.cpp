@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <hipcub/block/block_radix_sort.hpp>
 #include <stdexcept>
 #include <type_traits>
@@ -7718,6 +7719,11 @@ bool RoutedF16Gemm(const void* w, WeightType type, const __half* x,
           : 64;
   if (m == 0 || k == 0 || k % block_elems != 0 || n_tiles == 0 ||
       (out_half == nullptr) == (out == nullptr)) {
+    std::fprintf(stderr,
+                 "RoutedF16Gemm rejected: type=%d m=%zu k=%zu block=%zu "
+                 "n_tiles=%u tile_rows=%u out=%d out_half=%d\n",
+                 static_cast<int>(type), m, k, block_elems, n_tiles, tile_rows,
+                 out != nullptr, out_half != nullptr);
     return false;
   }
   switch (tile_rows) {

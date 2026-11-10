@@ -52,7 +52,8 @@ WeightType EmbeddingType(core::GgmlType type) {
     case core::GgmlType::kF32:
       return WeightType::kF32;
     default:
-      throw std::logic_error("unsupported Flash-Next embedding format");
+      throw std::logic_error("unsupported Flash-Next embedding format " +
+                             std::string(core::ToString(type)));
   }
 }
 
@@ -695,7 +696,8 @@ bool Executor::QuantizeBatch(const float* x, std::uint32_t rows,
 
 bool Executor::DenseBatch(const DeviceTensor& w, const float* x, float* out,
                           std::uint32_t rows, std::string* error) const {
-  if (rows <= kDecodeRows || w.type == core::GgmlType::kQ6_K)
+  if (rows <= kDecodeRows || w.type == core::GgmlType::kQ6_K ||
+      w.type == core::GgmlType::kQ4_K || w.type == core::GgmlType::kQ5_0)
     return Dense(w, x, out, rows, error);
   if (w.type != core::GgmlType::kQ8_0) {
     SmallGemm(w.data, EmbeddingType(w.type), x, out, rows, w.rows, w.cols,
