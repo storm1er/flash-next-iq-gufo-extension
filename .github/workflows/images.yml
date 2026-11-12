@@ -52,7 +52,7 @@ jobs:
           apt-get install -y --no-install-recommends \
             git ca-certificates cmake ninja-build pkg-config docker.io jq curl \
             libicu-dev libcurl4-openssl-dev libssl-dev zlib1g-dev \
-            libpng-dev libjpeg-dev libwebp-dev \
+            libpng-dev libjpeg-dev libwebp-dev libopus-dev \
             libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
           # Gufo's Rust components need the toolchain its rust-toolchain.toml
           # pins (newer than Ubuntu's cargo); rustup installs it on first use.

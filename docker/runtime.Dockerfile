@@ -17,7 +17,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl jq procps \
       libcurl4 libicu74 libjpeg-turbo8 libpng16-16t64 libwebp7 libgomp1 \
-      libsndfile1 libsoxr0 \
+      libopus0 libavformat60 libavcodec60 libavutil58 libswscale7 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY dist/gufo /usr/local/bin/gufo
