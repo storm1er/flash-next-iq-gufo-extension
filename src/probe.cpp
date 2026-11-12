@@ -13,9 +13,11 @@ bool ProbeFlashNextGguf(const core::GgufReader& reader) {
   }
   // This extension owns checkpoints whose routed experts use IQ-family or
   // narrow-bit targets (Unsloth UD: IQ3_S/IQ4_XS/IQ4_NL, and the 2026-11
-  // re-release mixing IQ3_XXS/IQ2_S + Q5_0/IQ4_NL/Q2_0). Every layout whose
-  // experts use the K-quant/Q5_1/Q8_0 targets — including UD-Q4_K_XL —
-  // belongs to the built-in flash-next provider.
+  // re-release mixing IQ3_XXS/IQ2_S + Q5_0/IQ4_NL/Q2_0). Layouts whose
+  // experts use only the K-quant/Q5_1/Q8_0 targets — including UD-Q4_K_XL —
+  // belong to the built-in flash-next provider. A mix (the 2026-10 UD-IQ4_XS
+  // keeps a few layers' down experts in Q8_0) is ours: the built-in provider
+  // cannot run the IQ layers, and the extension binds every type below.
   static constexpr core::GgmlType kOwned[] = {
       core::GgmlType::kIQ3_S,   core::GgmlType::kIQ4_XS, core::GgmlType::kIQ4_NL,
       core::GgmlType::kIQ3_XXS, core::GgmlType::kIQ2_S,  core::GgmlType::kQ5_0,
@@ -31,7 +33,7 @@ bool ProbeFlashNextGguf(const core::GgufReader& reader) {
     }
     return false;
   };
-  bool saw_expert = false;
+  bool saw_owned = false;
   for (const auto& tensor : reader.GetTensors()) {
     const auto name = tensor.name;
     if (name.find("ffn_gate_exps.") == std::string_view::npos &&
@@ -39,15 +41,13 @@ bool ProbeFlashNextGguf(const core::GgufReader& reader) {
         name.find("ffn_down_exps.") == std::string_view::npos) {
       continue;
     }
-    if (in(kBuiltin, std::size(kBuiltin), tensor.type)) {
-      return false;
+    if (in(kOwned, std::size(kOwned), tensor.type)) {
+      saw_owned = true;
+    } else if (!in(kBuiltin, std::size(kBuiltin), tensor.type)) {
+      return false;  // an expert format nobody here can run
     }
-    if (!in(kOwned, std::size(kOwned), tensor.type)) {
-      return false;
-    }
-    saw_expert = true;
   }
-  return saw_expert;
+  return saw_owned;
 }
 
 std::optional<sampling::TextSamplingDefaults> FlashNextSamplingDefaults() {
