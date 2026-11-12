@@ -1,5 +1,7 @@
 #include "cpu_ops.hpp"
 
+#include "ggml_q2_0.hpp"
+
 #include <cmath>
 #include <cstring>
 #include <gufo/ext/experimental/ggml_dequant.hpp>
@@ -68,8 +70,8 @@ void DequantizeRow(const TensorRef& t, std::uint64_t e, std::uint64_t row,
     case GgmlType::kQ5_1:
       DequantizeQ5_1(src, out, k);
       break;
-    case GgmlType::kQ2_0:
-      gufo::quant::DequantizeQ2_0(src, out, k);
+    case kGgmlQ2_0:
+      DequantizeQ2_0(src, out, k);
       break;
     case GgmlType::kIQ4_NL:
       gufo::quant::DequantizeIQ4_NL(src, out, k);

@@ -39,6 +39,9 @@ void flash_next_iq_provider_register(gufo::ext::Registry& registry) {
       .chat_driver = &gufo::models::flash_next_iq::RunFlashNextChat,
       .sampling_defaults =
           &gufo::models::flash_next_iq::FlashNextSamplingDefaults,
+      // The UD 3.1 UD-IQ4_XS keeps two layers' down experts in GGML Q2_0,
+      // which core does not size: the provider binds and decodes it itself.
+      .accepts_unsized_tensors = true,
   });
 #endif
 }

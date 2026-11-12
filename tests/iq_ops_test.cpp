@@ -18,6 +18,7 @@
 
 #include <gufo/ext/gguf_reader.hpp>
 #include <gufo/ext/experimental/ggml_dequant.hpp>
+#include "ggml_q2_0.hpp"
 #include "kernels/rocm/kernels.hpp"
 #include "kernels/rocm/mmq/fniq_mmq.h"
 
@@ -84,7 +85,8 @@ const Format kIQ2_S{
 const Format kQ5_0{
     GgmlType::kQ5_0, "Q5_0", 32, 22, 0, gufo::quant::DequantizeQ5_0};
 const Format kQ2_0{
-    GgmlType::kQ2_0, "Q2_0", 64, 18, 0, gufo::quant::DequantizeQ2_0};
+    gufo::models::flash_next_iq::kGgmlQ2_0, "Q2_0", 64, 18, 0,
+    gufo::models::flash_next_iq::DequantizeQ2_0};
 const Format kIQ4_NL{
     GgmlType::kIQ4_NL, "IQ4_NL", 32, 18, 0, gufo::quant::DequantizeIQ4_NL};
 const Format kIQ4_XS{
@@ -238,7 +240,7 @@ void CheckRouted(const Format& f, int rows, int cols, int tokens, int used) {
   for (int n : gated_widths) {
     if (n > tokens)
       break;
-    if (f.type == GgmlType::kQ5_0 || f.type == GgmlType::kQ2_0)
+    if (f.type == GgmlType::kQ5_0 || f.type == gufo::models::flash_next_iq::kGgmlQ2_0)
       break;  // Down-only formats: the gated route rejects them by design.
     Expect(!fniq_mmq_moe_gated_vec(type, wa, wb, dx, di, out, rows, cols, n,
                                   experts, used, nullptr),
@@ -256,7 +258,7 @@ void CheckRouted(const Format& f, int rows, int cols, int tokens, int used) {
                   : f.type == GgmlType::kIQ3_XXS ? fniq_mmq_iq3_xxs_moe_raw
                   : f.type == GgmlType::kIQ2_S   ? fniq_mmq_iq2_s_moe_raw
                   : f.type == GgmlType::kQ5_0    ? fniq_mmq_q5_0_moe_raw
-                  : f.type == GgmlType::kQ2_0    ? fniq_mmq_q2_0_moe_raw
+                  : f.type == gufo::models::flash_next_iq::kGgmlQ2_0    ? fniq_mmq_q2_0_moe_raw
                   : f.type == GgmlType::kIQ4_NL ? fniq_mmq_iq4_nl_moe_raw
                                                 : fniq_mmq_iq4_xs_moe_raw;
   CheckHip(hipMemset(out, 0, count * sizeof(float)), "clear MMQ output");

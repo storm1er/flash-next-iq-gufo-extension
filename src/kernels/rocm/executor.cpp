@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "fniq_mmq.h"
+#include "ggml_q2_0.hpp"
 #include "qwen/draft_vocab/draft_vocab.hpp"
 #include "kernels/rocm/kernels.hpp"
 
@@ -2248,7 +2249,7 @@ bool Executor::Experts(const DeviceTensor& w, const float* x,
         rc =
             fniq_mmq_q5_0_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
-      case GgmlType::kQ2_0:
+      case kGgmlQ2_0:
         rc =
             fniq_mmq_q2_0_moe_raw(w.data, x, ids, out, M, K, T, E, U, stream_);
         break;
@@ -3314,7 +3315,7 @@ bool Executor::WmmaExperts(const DeviceLayer& l, std::uint32_t n_tokens) const {
          l.ffn_up_exps.type == gate_format &&
          (down_format == GgmlType::kQ5_1 || down_format == GgmlType::kQ8_0 ||
           down_format == GgmlType::kIQ4_NL || down_format == GgmlType::kQ5_0 ||
-          down_format == GgmlType::kQ2_0) &&
+          down_format == kGgmlQ2_0) &&
          c.hidden_size % 256 == 0 && c.expert_ff % 64 == 0;
 }
 

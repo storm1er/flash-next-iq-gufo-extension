@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <gufo/ext/experimental/ggml_dequant.hpp>
+#include "ggml_q2_0.hpp"
 #include "kernels/rocm/kernels.hpp"
 #include "kernels/rocm/mmq/fniq_mmq.h"
 
@@ -140,7 +141,7 @@ Experts MakeIq(q::WeightType type, std::size_t e, std::size_t m, std::size_t k,
       : type == q::WeightType::kIQ3_XXS ? gufo::quant::DequantizeIQ3_XXS
       : type == q::WeightType::kIQ2_S   ? gufo::quant::DequantizeIQ2_S
       : type == q::WeightType::kQ5_0    ? gufo::quant::DequantizeQ5_0
-      : type == q::WeightType::kQ2_0    ? gufo::quant::DequantizeQ2_0
+      : type == q::WeightType::kQ2_0    ? gufo::models::flash_next_iq::DequantizeQ2_0
                                         : gufo::quant::DequantizeIQ4_NL;
   Experts w;
   const std::size_t blocks = e * m * (k / block);

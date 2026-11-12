@@ -1,5 +1,7 @@
 #include "weights.hpp"
 
+#include "ggml_q2_0.hpp"
+
 #include <initializer_list>
 #include <string>
 #include <utility>
@@ -31,8 +33,8 @@ struct Format {
       return {32, 24};
     case GgmlType::kIQ4_NL:
       return {32, 18};
-    case GgmlType::kQ2_0:
-      return {64, 18};
+    case kGgmlQ2_0:
+      return {kQ2_0BlockElements, kQ2_0BlockBytes};
     case GgmlType::kIQ3_S:
       return {256, 110};
     case GgmlType::kIQ2_S:
@@ -119,7 +121,9 @@ struct Binder {
         break;
       }
     }
-    if (!inside) {
+    // Core leaves types it cannot size (Q2_0) unsized, with the bytes the
+    // file reserves for them: the payload must fit that span too.
+    if (!inside || (!info->sized && t.SizeBytes() > info->size_bytes)) {
       Fail("tensor " + name + " is truncated");
       return TensorRef{};
     }
@@ -159,7 +163,7 @@ struct Binder {
     const auto experts = {GgmlType::kQ4_K,   GgmlType::kQ5_K,  GgmlType::kQ6_K,
                           GgmlType::kQ5_1,   GgmlType::kQ8_0,  GgmlType::kIQ3_S,
                           GgmlType::kIQ4_XS, GgmlType::kIQ4_NL, GgmlType::kIQ3_XXS,
-                          GgmlType::kIQ2_S,  GgmlType::kQ5_0,  GgmlType::kQ2_0};
+                          GgmlType::kIQ2_S,  GgmlType::kQ5_0,  kGgmlQ2_0};
 
     l.hc_attn = Mixer(p + "hc_attn", c, true);
     l.hc_ffn = Mixer(p + "hc_ffn", c, true);

@@ -1,5 +1,7 @@
 #include "probe.hpp"
 
+#include "ggml_q2_0.hpp"
+
 #include <filesystem>
 #include <string>
 
@@ -21,7 +23,7 @@ bool ProbeFlashNextGguf(const core::GgufReader& reader) {
   static constexpr core::GgmlType kOwned[] = {
       core::GgmlType::kIQ3_S,   core::GgmlType::kIQ4_XS, core::GgmlType::kIQ4_NL,
       core::GgmlType::kIQ3_XXS, core::GgmlType::kIQ2_S,  core::GgmlType::kQ5_0,
-      core::GgmlType::kQ2_0};
+      kGgmlQ2_0};
   static constexpr core::GgmlType kBuiltin[] = {
       core::GgmlType::kQ4_K, core::GgmlType::kQ5_K, core::GgmlType::kQ6_K,
       core::GgmlType::kQ5_1, core::GgmlType::kQ8_0};
@@ -67,7 +69,8 @@ bool ProbeFlashNext(std::string_view model_root) {
     }
     if (std::filesystem::is_regular_file(p)) {
       std::string err;
-      auto reader = core::GgufReader::OpenFile(p.string(), &err);
+      auto reader = core::GgufReader::OpenFile(p.string(), &err,
+                                                 {.allow_unsized_tensors = true});
       if (!reader)
         return false;
       return ProbeFlashNextGguf(*reader);
