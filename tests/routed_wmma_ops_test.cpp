@@ -114,21 +114,34 @@ Experts MakeQ4K(std::size_t e, std::size_t m, std::size_t k,
 
 bool IsIq(q::WeightType type) {
   return type == q::WeightType::kIQ3_S || type == q::WeightType::kIQ4_XS ||
-         type == q::WeightType::kIQ4_NL;
+         type == q::WeightType::kIQ4_NL || type == q::WeightType::kIQ3_XXS ||
+         type == q::WeightType::kQ5_0 || type == q::WeightType::kQ2_0 ||
+         type == q::WeightType::kIQ2_S;
 }
 
-/// Random IQ3_S/IQ4_XS/IQ4_NL blocks: every code byte random, a moderate F16
-/// scale first, values from the independent CPU decoders.
+/// Random IQ3_S/IQ4_XS/IQ4_NL blocks and the UD 3.1 IQ3_XXS/IQ2_S/Q5_0/Q2_0
+/// ones: every code byte random, a moderate F16 scale first, values from the
+/// independent CPU decoders.
 Experts MakeIq(q::WeightType type, std::size_t e, std::size_t m, std::size_t k,
                std::uint32_t seed) {
-  const std::size_t block = type == q::WeightType::kIQ4_NL ? 32 : 256;
-  const std::size_t bytes = type == q::WeightType::kIQ3_S    ? 110
-                            : type == q::WeightType::kIQ4_XS ? 136
-                                                             : 18;
+  const std::size_t block =
+      type == q::WeightType::kIQ4_NL || type == q::WeightType::kQ5_0 ? 32
+      : type == q::WeightType::kQ2_0                                 ? 64
+                                                                     : 256;
+  const std::size_t bytes = type == q::WeightType::kIQ3_S     ? 110
+                            : type == q::WeightType::kIQ4_XS  ? 136
+                            : type == q::WeightType::kIQ3_XXS ? 98
+                            : type == q::WeightType::kIQ2_S   ? 82
+                            : type == q::WeightType::kQ5_0    ? 22
+                                                              : 18;
   const auto decode =
-      type == q::WeightType::kIQ3_S    ? gufo::quant::DequantizeIQ3_S
-      : type == q::WeightType::kIQ4_XS ? gufo::quant::DequantizeIQ4_XS
-                                       : gufo::quant::DequantizeIQ4_NL;
+      type == q::WeightType::kIQ3_S     ? gufo::quant::DequantizeIQ3_S
+      : type == q::WeightType::kIQ4_XS  ? gufo::quant::DequantizeIQ4_XS
+      : type == q::WeightType::kIQ3_XXS ? gufo::quant::DequantizeIQ3_XXS
+      : type == q::WeightType::kIQ2_S   ? gufo::quant::DequantizeIQ2_S
+      : type == q::WeightType::kQ5_0    ? gufo::quant::DequantizeQ5_0
+      : type == q::WeightType::kQ2_0    ? gufo::quant::DequantizeQ2_0
+                                        : gufo::quant::DequantizeIQ4_NL;
   Experts w;
   const std::size_t blocks = e * m * (k / block);
   w.packed.resize(blocks * bytes);
@@ -311,6 +324,10 @@ const char* TypeName(q::WeightType type) {
          : type == q::WeightType::kIQ3_S  ? "IQ3_S"
          : type == q::WeightType::kIQ4_XS ? "IQ4_XS"
          : type == q::WeightType::kIQ4_NL ? "IQ4_NL"
+         : type == q::WeightType::kIQ3_XXS ? "IQ3_XXS"
+         : type == q::WeightType::kIQ2_S   ? "IQ2_S"
+         : type == q::WeightType::kQ5_0   ? "Q5_0"
+         : type == q::WeightType::kQ2_0   ? "Q2_0"
                                           : "Q8_0";
 }
 
@@ -376,7 +393,12 @@ Result Run(q::WeightType type, std::size_t n_tokens, std::size_t used,
                        : type == q::WeightType::kIQ3_S  ? fniq_mmq_iq3_s_moe_raw
                        : type == q::WeightType::kIQ4_XS ? fniq_mmq_iq4_xs_moe_raw
                        : type == q::WeightType::kIQ4_NL ? fniq_mmq_iq4_nl_moe_raw
-                                                        : fniq_mmq_q8_0_moe_raw;
+                       : type == q::WeightType::kIQ3_XXS
+                           ? fniq_mmq_iq3_xxs_moe_raw
+                       : type == q::WeightType::kIQ2_S ? fniq_mmq_iq2_s_moe_raw
+                       : type == q::WeightType::kQ5_0 ? fniq_mmq_q5_0_moe_raw
+                       : type == q::WeightType::kQ2_0 ? fniq_mmq_q2_0_moe_raw
+                                                      : fniq_mmq_q8_0_moe_raw;
   const int rc =
       mmq_raw(d_w, d_x, d_ids, d_mmq, static_cast<int>(m), static_cast<int>(k),
               static_cast<int>(n_tokens), static_cast<int>(experts),
@@ -1346,6 +1368,31 @@ int main() {
     }
     ok = Ok(Run(q::WeightType::kIQ3_S, 40, 4, 8, 201, 512, 0x1A3ADEADU)) && ok;
     ok = Ok(Run(q::WeightType::kIQ4_NL, 97, 1, 8, 129, 640, 0x1A4BBEEFU, 128)) &&
+         ok;
+    // UD 3.1 (2026-11): IQ3_XXS gate/up; Q5_0 and Q2_0 down, including the
+    // 128-row wide-down tiles; ragged rows and tiny batches.
+    for (const std::uint32_t tile_rows : {48U, 16U}) {
+      ok = Ok(Run(q::WeightType::kIQ3_XXS, 300, 10, 64, 640, 2560,
+                  0x1A3C0000U + tile_rows, tile_rows)) &&
+           ok;
+      ok = Ok(Run(q::WeightType::kIQ2_S, 300, 10, 64, 640, 2560,
+                  0x1A2C0000U + tile_rows, tile_rows)) &&
+           ok;
+    }
+    ok = Ok(Run(q::WeightType::kIQ2_S, 40, 4, 8, 201, 512, 0x1A2CDEADU)) && ok;
+    for (const std::uint32_t tile_rows : {128U, 48U, 16U}) {
+      ok = Ok(Run(q::WeightType::kQ5_0, 3000, 1, 64, 2560, 640,
+                  0x1A500000U + tile_rows, tile_rows)) &&
+           ok;
+      ok = Ok(Run(q::WeightType::kQ2_0, 3000, 1, 64, 2560, 640,
+                  0x1A200000U + tile_rows, tile_rows)) &&
+           ok;
+    }
+    ok = Ok(Run(q::WeightType::kIQ3_XXS, 40, 4, 8, 201, 512, 0x1A3CDEADU)) &&
+         ok;
+    ok = Ok(Run(q::WeightType::kQ5_0, 97, 1, 8, 129, 640, 0x1A50BEEFU, 128)) &&
+         ok;
+    ok = Ok(Run(q::WeightType::kQ2_0, 97, 1, 8, 129, 640, 0x1A20BEEFU, 128)) &&
          ok;
     return ok ? 0 : 1;
   } catch (const std::exception& error) {

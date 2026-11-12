@@ -3308,10 +3308,13 @@ bool Executor::WmmaExperts(const DeviceLayer& l, std::uint32_t n_tokens) const {
   const GgmlType down_format = l.ffn_down_exps.type;
   return ExpertMatrixRows(n_tokens) &&
          (gate_format == GgmlType::kQ4_K || gate_format == GgmlType::kQ5_K ||
-          gate_format == GgmlType::kIQ3_S || gate_format == GgmlType::kIQ4_XS) &&
+          gate_format == GgmlType::kIQ3_S || gate_format == GgmlType::kIQ4_XS ||
+          gate_format == GgmlType::kIQ3_XXS ||
+          gate_format == GgmlType::kIQ2_S) &&
          l.ffn_up_exps.type == gate_format &&
          (down_format == GgmlType::kQ5_1 || down_format == GgmlType::kQ8_0 ||
-          down_format == GgmlType::kIQ4_NL) &&
+          down_format == GgmlType::kIQ4_NL || down_format == GgmlType::kQ5_0 ||
+          down_format == GgmlType::kQ2_0) &&
          c.hidden_size % 256 == 0 && c.expert_ff % 64 == 0;
 }
 
