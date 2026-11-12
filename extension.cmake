@@ -26,6 +26,10 @@ add_library(gufo_flash_next_iq_qwen STATIC
 target_include_directories(gufo_flash_next_iq_qwen PUBLIC "${FNIQ}")
 target_link_libraries(gufo_flash_next_iq_qwen PUBLIC gufo_ext_runtime)
 target_compile_features(gufo_flash_next_iq_qwen PUBLIC cxx_std_20)
+# Helper archives link into the loadable module (`gufo extension install`)
+# as well as into `gufo`, so they are built position-independent.
+set_target_properties(gufo_flash_next_iq_qwen PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
 
 if (ENGINE_ENABLE_HIP)
   # Vendored Qwen HIP operator library (mirrors gufo_qwen_kernels).
@@ -96,6 +100,8 @@ if (ENGINE_ENABLE_HIP)
     ${HIPCUB_INCLUDE_DIR}
     ${ROCPRIM_INCLUDE_DIR})
   target_compile_features(gufo_flash_next_iq_qwen_hip PUBLIC cxx_std_20)
+  set_target_properties(gufo_flash_next_iq_qwen_hip PROPERTIES
+    POSITION_INDEPENDENT_CODE ON)
   target_link_libraries(gufo_flash_next_iq_qwen_hip PUBLIC
     gufo_ext_runtime gufo_flash_next_iq_qwen hip::host roc::hipblas roc::hipblaslt)
 
@@ -155,6 +161,8 @@ add_library(gufo_flash_next_iq_reference STATIC EXCLUDE_FROM_ALL
   ${FNIQ}/cpu_ops.cpp
   ${FNIQ}/reference.cpp)
 target_include_directories(gufo_flash_next_iq_reference PUBLIC "${FNIQ}")
+set_target_properties(gufo_flash_next_iq_reference PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(gufo_flash_next_iq_reference PUBLIC
   gufo_flash_next_iq)
 set_source_files_properties(
@@ -211,50 +219,44 @@ if(TARGET gufo_flash_next_iq_hip)
   target_include_directories(gufo_flash_next_iq_hip PUBLIC "${FNIQ}")
 endif()
 
-install(FILES "${GUFO_EXTENSION_BUILD_ROOT}/LICENSE"
+# Source license and the notices of the vendored GGML-derived kernels.
+install(FILES
+    "${GUFO_EXTENSION_BUILD_ROOT}/LICENSE"
+    "${GUFO_EXTENSION_BUILD_ROOT}/licenses/llama.cpp.txt"
+    "${FNIQ_MMQ_DIR}/VENDOR.md"
   DESTINATION share/licenses/gufo/extensions/flash_next_iq)
 
-# Operator tests (UD-IQ4_XS support): accuracy of the IQ3_S/IQ4_XS/IQ4_NL
-# routed-expert paths and the Q6_K logits head against CPU/F64 references.
-# Opt in with -DGUFO_FLASH_NEXT_IQ_TESTS=ON; they run on any gfx1151 device
-# and allocate only small tensors, so they coexist with a loaded server.
-option(GUFO_FLASH_NEXT_IQ_TESTS "Build the Flash-Next IQ operator tests" OFF)
-if(GUFO_FLASH_NEXT_IQ_TESTS AND ENGINE_ENABLE_HIP)
-  # Tests are development artifacts and never ship. The oracle they compare
-  # against (core dequantizers, GgufReader, WeightUpload) is defined in the
-  # host's gufo_core archive; linking it by build-tree file path keeps the
-  # production extension targets free of private targets while the tests can
-  # still check exactness against the shipped CPU reference.
-  set(_flash_next_iq_core "${PROJECT_BINARY_DIR}/libgufo_core.a")
-  if(NOT EXISTS "${_flash_next_iq_core}")
-    message(FATAL_ERROR "GUFO_FLASH_NEXT_IQ_TESTS: missing ${_flash_next_iq_core}")
-  endif()
-  foreach(test_name IN ITEMS iq_ops routed_wmma_ops)
-    add_executable(flash_next_iq_${test_name}_test
-      "${GUFO_EXTENSION_BUILD_ROOT}/tests/${test_name}_test.cpp")
-    target_link_libraries(flash_next_iq_${test_name}_test PRIVATE
+# Operator tests: every expert format's vector, MMQ and F16 matrix-core
+# routes, the Q6_K head and dense GEMMs, and the token-embedding gather,
+# against CPU/F64 references. They are role "test" targets (built with
+# BUILD_TESTING), run on any gfx1151 device and allocate only small tensors,
+# so they coexist with a loaded server. gufo_ext_runtime only declares the
+# public services; gufo_ext_core/cache/hip link their implementations into
+# these standalone executables.
+set(_flash_next_iq_test_libs gufo_ext_core gufo_ext_cache)
+if(ENGINE_ENABLE_HIP)
+  list(APPEND _flash_next_iq_test_libs gufo_ext_hip)
+endif()
+
+foreach(test_name IN ITEMS iq_ops routed_wmma_ops)
+  gufo_extension_target(
+    NAME flash_next_iq_${test_name}_test
+    SOURCES
+      tests/${test_name}_test.cpp
+    LINK_LIBRARIES
       gufo_flash_next_iq_hip
       gufo_flash_next_iq_mmq
+      gufo_flash_next_iq
       gufo_ext_runtime
+      ${_flash_next_iq_test_libs}
       hip::host
-      OpenSSL::Crypto
-      ICU::uc
-      ICU::i18n
-      JPEG::JPEG
-      PNG::PNG
-      ZLIB::ZLIB
-      CURL::libcurl
-      PkgConfig::WEBP
-      Threads::Threads
-      "${_flash_next_iq_core}")
+  )
+  if(TARGET flash_next_iq_${test_name}_test)
     target_compile_definitions(flash_next_iq_${test_name}_test PRIVATE
       ENGINE_ENABLE_HIP=1)
-    target_include_directories(flash_next_iq_${test_name}_test PRIVATE
-      "${FNIQ}")
-    target_compile_features(flash_next_iq_${test_name}_test PRIVATE cxx_std_20)
     add_test(NAME flash_next_iq.${test_name}
       COMMAND flash_next_iq_${test_name}_test)
     set_tests_properties(flash_next_iq.${test_name} PROPERTIES
       LABELS "flash_next_iq;hip;gpu;gfx1151")
-  endforeach()
-endif()
+  endif()
+endforeach()

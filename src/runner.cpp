@@ -296,6 +296,15 @@ public:
                 .max_in_pass_checkpoints = rocm::kMaxPassCheckpoints,
             },
         .sampling_defaults = FlashNextSamplingDefaults(),
+        // Passes are not split by layers: beside decoders a prompt runs in
+        // 512-token passes (about 0.3 s at depth), which bounds how long
+        // other sessions wait, as before the scheduling profile existed.
+        .scheduling =
+            TextSchedulingProfile{
+                .pass_tokens = 512,
+                .max_layer_groups = 1,
+                .max_yield_decode_width = 8,
+            },
     };
   }
 

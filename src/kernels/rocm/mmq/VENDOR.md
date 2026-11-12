@@ -1,7 +1,9 @@
 # Quantized HIP kernels
 
 Adapted from `ggml-org/llama.cpp` at
-`5c0e9468378eba6bf3cc1989ff5d62fbbe4d9e3a` (MIT; see `LICENSE`).
+`5c0e9468378eba6bf3cc1989ff5d62fbbe4d9e3a` (MIT, The ggml authors; notice in
+`licenses/llama.cpp.txt` at the repository root). The Q5_0, Q2_0, IQ3_XXS and
+IQ2_S entries follow llama.cpp `master` (2026-11) under the same license.
 The upstream source directory is `ggml/src/ggml-cuda`; Gufo builds these
 sources with HIP for AMD Strix Halo (`gfx1151`).
 

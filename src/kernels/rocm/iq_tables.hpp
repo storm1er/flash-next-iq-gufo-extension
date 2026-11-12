@@ -1,7 +1,8 @@
 // IQ3_S/IQ3_XXS/IQ2_S grids and IQ4_NL/IQ4_XS value tables for the routed
 // F16 expert GEMM.
-// Values from ggml-org/llama.cpp `ggml/src/ggml-common.h` (MIT; see
-// THIRD_PARTY_NOTICES.md), the same tables the vendored mmq kernels use.
+// Values from ggml-org/llama.cpp `ggml/src/ggml-common.h` (MIT, The ggml
+// authors; notice in licenses/llama.cpp.txt), the same tables the vendored mmq kernels
+// use.
 #pragma once
 
 #include <hip/hip_runtime.h>

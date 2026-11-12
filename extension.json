@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "name": "flash_next_iq",
-  "version": "0.1.0",
-  "api_version": ">= 0.2.0",
+  "version": "0.2.0",
+  "api_version": ">= 0.3.0",
   "entry": "flash_next_iq_register",
   "registration_target": "gufo_flash_next_iq",
   "depends": [],
@@ -35,8 +35,27 @@
       "requires": [
         "hip"
       ]
+    },
+    "flash_next_iq_iq_ops_test": {
+      "requires": [
+        "hip",
+        "testing"
+      ],
+      "role": "test"
+    },
+    "flash_next_iq_routed_wmma_ops_test": {
+      "requires": [
+        "hip",
+        "testing"
+      ],
+      "role": "test"
     }
   },
+  "licenses": [
+    "LICENSE",
+    "licenses/llama.cpp.txt",
+    "src/kernels/rocm/mmq/VENDOR.md"
+  ],
   "production_paths": {
     "include": [
       "src/**/*.cpp",
@@ -55,7 +74,7 @@
   ],
   "docs": {
     "title": "Qwen3.8 Flash-Next IQ quants",
-    "inputs": "IQ4_XS-family GGUF (IQ3_S/IQ4_XS/IQ4_NL routed experts); text/images",
+    "inputs": "UD-IQ4_XS GGUF of Qwen3.8-Flash-Next (2026-11 UD 3.1: IQ3_XXS/IQ4_XS/IQ2_S gate/up, Q5_0/IQ4_NL/Q2_0 down, Q6_K trunk; 2026-10: IQ3_S/IQ4_XS/IQ4_NL experts), Q8_0 or Q4_K_M MTP drafter, BF16 mmproj; text and images",
     "guide": "README.md"
   },
   "test_labels": [

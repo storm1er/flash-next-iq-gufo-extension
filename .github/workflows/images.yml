@@ -5,6 +5,10 @@
 #   <IMAGE>:latest-rocm         ROCm userspace baked in, no volume
 #   <IMAGE>:sha-<short>[…]      immutable copies of this run
 #
+# The `module` job builds the extension the way the Gufo extension registry
+# does, with `gufo extension install` in the stock gufo-runtime image of the
+# same Gufo release.
+#
 # Semver tags remain manual stable pins. The build runs in
 # AMD's ROCm 10.0 dev image so the baked userspace matches the production
 # host's core-10.0 driver generation; hipcc compiles without a GPU (the
@@ -29,6 +33,8 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/storm1er/flash-next-iq-gufo-extension
+  # The stock runtime of the Gufo release in .upstream-rev.
+  RUNTIME_IMAGE: ghcr.io/gufo-org/toolboxes/gufo-runtime:0.34.0
 
 jobs:
   images:
@@ -44,10 +50,15 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            git ca-certificates cmake ninja-build pkg-config docker.io jq \
+            git ca-certificates cmake ninja-build pkg-config docker.io jq curl \
             libicu-dev libcurl4-openssl-dev libssl-dev zlib1g-dev \
-            libpng-dev libjpeg-dev libwebp-dev libsndfile1-dev libsoxr-dev \
+            libpng-dev libjpeg-dev libwebp-dev \
             libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
+          # Gufo's Rust components need the toolchain its rust-toolchain.toml
+          # pins (newer than Ubuntu's cargo); rustup installs it on first use.
+          curl -fsS --proto '=https' --tlsv1.2 https://sh.rustup.rs |
+            sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - uses: actions/checkout@v4
         with:
@@ -67,13 +78,6 @@ jobs:
           repository: gufo-org/gufo
           ref: ${{ steps.rev.outputs.full }}
           path: gufo
-
-      - name: Apply upstream Q2_0 core overlay
-        working-directory: gufo
-        # GGML Q2_0 core support (reader sizes + CPU dequant) is not merged
-        # upstream yet; the checkpoint's blk.8/blk.10 ffn_down_exps use it.
-        # Drop this step once .upstream-rev contains the upstream Q2_0 commit.
-        run: git apply ../ext/tools/upstream-core-q2_0.patch
 
       - name: Configure (full extension discovery + this extension)
         working-directory: gufo
@@ -115,3 +119,27 @@ jobs:
           for tag in latest "sha-$short" latest-rocm "sha-$short-rocm"; do
             docker push "$IMAGE:$tag"
           done
+
+  module:
+    # The registry's install path: build this checkout as a loadable module
+    # for the stock Gufo release and require the provider to be available.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ext
+
+      - name: gufo extension install (stock runtime)
+        run: |
+          mkdir -p store
+          chmod 777 store
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/ext:/src/flash-next-iq-gufo-extension:ro" \
+            -v "$GITHUB_WORKSPACE/store:/home/gufo/.local/share/gufo/extensions" \
+            "$RUNTIME_IMAGE" \
+            gufo extension install /src/flash-next-iq-gufo-extension --yes
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/store:/home/gufo/.local/share/gufo/extensions" \
+            "$RUNTIME_IMAGE" gufo diagnose --section extensions --json |
+            jq -e 'any(.providers[]; .id == "flash-next-iq" and .available)'
