@@ -67,6 +67,11 @@ docker run --rm --user 0:0 $STORE --device /dev/kfd --device /dev/dri \
   $IMG gufo serve --host 0.0.0.0 --port 8080 llm ...   # as above
 ```
 
+In `gufo-runtime:0.34.0`, Git and registry sources (`@<commit>`, `flash_next_iq`) fail with "SSL
+certificate ... unable to get local issuer certificate": the image's Git has no CA bundle. Mount the host's,
+e.g. `-v /etc/ssl/certs:/etc/ssl/certs:ro -e GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt
+-e SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt`; local directories need nothing.
+
 Under Docker, run as root (`--user 0:0`): as the image's unprivileged `gufo` user the 80 GiB weight upload
 fails to allocate its pinned staging buffer ("weight upload staging allocation failed"). Rootless Podman
 with `--userns=keep-id`, as in Gufo's toolbox README, has not been tested with this extension.
