@@ -132,6 +132,7 @@ __device__ __forceinline__ float RowElement(const void* row, WeightType type,
       // block_iq4_xs: f16 d, 16 high scale bits, 4 low scale nibbles and 128
       // nibble codes per 256 elements. The grid bytes are the same table the
       // RoutedF16 Iq4Values perm decodes, so the two paths agree to the bit.
+      // kIq4nlValues packs four signed bytes per 32-bit word.
       const std::uint32_t b = i >> 8;
       const std::uint8_t* blk =
           static_cast<const std::uint8_t*>(row) + b * 136;
@@ -147,7 +148,7 @@ __device__ __forceinline__ float RowElement(const void* row, WeightType type,
       const std::uint8_t code = blk[8 + ib * 16 + (jj & 15)];
       const std::uint32_t nib = jj < 16 ? (code & 0xF) : (code >> 4);
       const auto grid = static_cast<int>(
-          static_cast<std::int8_t>(kIq4nlValues[nib >> 3] >> (8 * (nib & 7))));
+          static_cast<std::int8_t>(kIq4nlValues[nib >> 2] >> (8 * (nib & 3))));
       return dl * static_cast<float>(grid);
     }
   }

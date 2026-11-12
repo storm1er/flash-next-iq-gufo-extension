@@ -1,7 +1,8 @@
 // IQ3_S/IQ4_NL/IQ4_XS routed experts and the Q6_K logits head (UD-IQ4_XS
 // target): accuracy against an F64 dot product over the CPU dequantizers, and
 // the exactness contracts of the vector paths (batched rows, paired and fused
-// gate/up all match single-row decode bit for bit).
+// gate/up all match single-row decode bit for bit). Token-embedding gathers
+// (IQ4_XS and Q8_0 tables) must equal the CPU dequantizer row for row.
 #include <hip/hip_fp16.h>
 #include <hip/hip_runtime.h>
 
@@ -90,6 +91,8 @@ const Format kIQ4_XS{
     GgmlType::kIQ4_XS, "IQ4_XS", 256, 136, 0, gufo::quant::DequantizeIQ4_XS};
 const Format kQ6_K{
     GgmlType::kQ6_K, "Q6_K", 256, 210, 208, gufo::quant::DequantizeQ6_K};
+const Format kQ8_0{
+    GgmlType::kQ8_0, "Q8_0", 32, 34, 0, gufo::quant::DequantizeQ8_0};
 
 /// Random blocks of `format` (every code byte random, a moderate positive
 /// F16 scale) plus their dequantized values, row-major [matrices][m][k].
@@ -323,6 +326,50 @@ void CheckQ6KHead(int rows, int cols) {
     CheckHip(hipFree(p), "free");
 }
 
+/// Token embedding gather (the UD 3.1 IQ4_XS token_embd): every gathered row,
+/// replicated over the hyper-connection streams, equals the CPU dequantizer.
+void CheckEmbed(const Format& f, q::WeightType type, int vocab, int hidden) {
+  const std::string tag = std::string("embed ") + f.name +
+                          " vocab=" + std::to_string(vocab) +
+                          " hidden=" + std::to_string(hidden);
+  constexpr int streams = 4;
+  const Weights w = Make(f, 1, vocab, hidden, 0xE3B0U + vocab);
+  std::vector<std::int32_t> tokens;
+  std::uint32_t seed = 17;
+  for (int t = 0; t < 37; ++t)
+    tokens.push_back(static_cast<std::int32_t>(NextRandom(&seed) % vocab));
+  tokens.push_back(0);
+  tokens.push_back(vocab - 1);
+  const auto n = static_cast<std::uint32_t>(tokens.size());
+  auto* dw = Upload(w.packed);
+  auto* dt = Upload(tokens);
+  const std::vector<float> zeros(static_cast<std::size_t>(n) * streams *
+                                 hidden);
+  auto* out = Upload(zeros);
+  q::EmbedTokens(dw, type, dt, out, n, hidden, streams, nullptr);
+  CheckHip(hipDeviceSynchronize(), "EmbedTokens");
+  const auto got = Download(out, zeros.size());
+  double scale = 0.0, error = 0.0;
+  for (std::uint32_t t = 0; t < n; ++t)
+    for (int s = 0; s < streams; ++s)
+      for (int i = 0; i < hidden; ++i) {
+        const float ref =
+            w.values[static_cast<std::size_t>(tokens[t]) * hidden + i];
+        const float act =
+            got[(static_cast<std::size_t>(t) * streams + s) * hidden + i];
+        scale = std::max(scale, static_cast<double>(std::abs(ref)));
+        error = std::max(error, static_cast<double>(std::abs(act - ref)));
+        Expect(std::isfinite(act), tag + ": non-finite output");
+      }
+  const double rel = scale > 0.0 ? error / scale : error;
+  Expect(rel < 1e-6, tag + ": rows differ from the CPU dequantizer, rel err " +
+                         std::to_string(rel));
+  std::cout << tag << ": rel err " << rel << '\n';
+  for (void* p : {static_cast<void*>(dw), static_cast<void*>(dt),
+                  static_cast<void*>(out)})
+    CheckHip(hipFree(p), "free");
+}
+
 }  // namespace
 
 int main() {
@@ -346,6 +393,10 @@ int main() {
     CheckRouted(kQ2_0, 2561, 640, 9, 1);
     CheckQ6KHead(300, 2560);
     CheckQ6KHead(301, 2560);
+    // Token embeddings: UD 3.1 ships token_embd as IQ4_XS; Q8_0 is the
+    // earlier export and the MTP sidecar's.
+    CheckEmbed(kIQ4_XS, q::WeightType::kIQ4_XS, 4099, 2560);
+    CheckEmbed(kQ8_0, q::WeightType::kQ8_0, 4099, 2560);
   } catch (const std::exception& e) {
     std::cerr << "FAILED: " << e.what() << '\n';
     return 1;
