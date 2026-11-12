@@ -1955,6 +1955,13 @@ void Executor::PrepareHalfInput(const float* x, std::uint32_t rows,
 
 bool Executor::DenseF16Route(const DeviceTensor& w,
                              std::uint32_t n_tokens) const {
+  if (w.type == GgmlType::kQ6_K) {
+    // Q6_K (the UD 3.1 trunk) has no int8 WMMA route: every wide prefill
+    // shape takes the F16 matrix cores. Decode and verification batches
+    // keep the single-row GEMV arithmetic.
+    return WidePrefill(n_tokens) && w.cols % 256 == 0 &&
+           w.cols <= kDenseF16MaxCols && w.cols <= model_->max_half_cols();
+  }
   return w.type == GgmlType::kQ8_0 && MatrixRows(n_tokens) &&
          w.rows >= kDenseF16MinRows && w.cols <= kDenseF16MaxCols &&
          w.cols <= model_->max_half_cols();
@@ -1964,11 +1971,38 @@ bool Executor::Dense(const DeviceTensor& w, const float* x, float* out,
                      std::uint32_t n_tokens, std::string* error_msg) const {
   if (w.type == GgmlType::kQ6_K || w.type == GgmlType::kQ4_K ||
       w.type == GgmlType::kQ5_0) {
-    // Q6_K covers the trunk's attention and the logits head; Q4_K and Q5_0
-    // arrive through the Q4_K_M MTP sidecar's attention, hyperconnected
-    // mixers and eh_proj. Every row keeps the single-row GEMV arithmetic, so
-    // decode, verification and batched heads agree; wider calls run eight
-    // rows per launch.
+    // Q6_K covers the trunk's attention, shared experts and the logits head;
+    // Q4_K and Q5_0 arrive through the Q4_K_M MTP sidecar's attention,
+    // hyperconnected mixers and eh_proj. Wide prefill runs Q6_K on the F16
+    // matrix cores (as Q8_0 runs its F16/W8A8 routes) and the other shapes
+    // and formats on the tiled MMQ GEMM. Decode and verification rows keep
+    // the single-row GEMV arithmetic so they agree bit for bit, eight rows
+    // per launch.
+    if (WidePrefill(n_tokens)) {
+      if (DenseF16Route(w, n_tokens)) {
+        const auto piece = static_cast<std::uint32_t>(options_.max_batch);
+        for (std::uint32_t r0 = 0; r0 < n_tokens; r0 += piece) {
+          const std::uint32_t rows = std::min(piece, n_tokens - r0);
+          const float* src = x + static_cast<std::size_t>(r0) * w.cols;
+          PrepareHalfInput(src, rows, w.cols);
+          if (!DenseF16Gemm(w.data, static_cast<const __half*>(s_.x_half),
+                            out + static_cast<std::size_t>(r0) * w.rows, rows,
+                            w.rows, w.cols, stream_, 0,
+                            static_cast<WeightType>(w.type))) {
+            AssignError(error_msg, "dense Q6_K F16 GEMM failed");
+            return false;
+          }
+        }
+        return true;
+      }
+      if (fniq_mmq_dense(static_cast<int>(w.type), w.data, x, out,
+                         static_cast<int>(w.rows), static_cast<int>(n_tokens),
+                         static_cast<int>(w.cols), stream_) != 0) {
+        AssignError(error_msg, "dense quantized GEMM failed");
+        return false;
+      }
+      return true;
+    }
     for (std::uint32_t r0 = 0; r0 < n_tokens; r0 += kVecBatch) {
       const std::uint32_t rows = std::min(kVecBatch, n_tokens - r0);
       const float* src = x + static_cast<std::size_t>(r0) * w.cols;
@@ -2809,7 +2843,7 @@ bool Executor::LinearAttention(const DeviceLayer& l, Session::LinearState& s,
               rows.tokens[i] = checkpoint.tokens[i];
             return rows;
           }(),
-          side_stream_, side_start_);
+          side_stream_, side_start_, static_cast<WeightType>(l.ssm_in.type));
       if (convolved) {
         if (!Check(hipEventRecord(side_done_, side_stream_), "side stream join",
                    error_msg)) {
@@ -2929,7 +2963,7 @@ bool Executor::Attention(const DeviceLayer& l, Session::AttentionState& s,
           l.attn_qkv.data, static_cast<const __half*>(s_.x_half),
           l.attn_q_norm.f32(), l.attn_k_norm.f32(), s_.q, s_.attn_gate,
           s.k_cache, s.v_cache, n_tokens, pos, c.rope_theta, c.rms_eps, stream_,
-          s.rope, yarn_);
+          s.rope, yarn_, static_cast<WeightType>(l.attn_qkv.type));
       if (!prepared) {
         AssignError(error_msg, "fused attention projection failed");
         return false;
@@ -3085,12 +3119,10 @@ bool Executor::Attention(const DeviceLayer& l, Session::AttentionState& s,
       }
       first = std::max(first, end);
     }
-    return !project_output ||
-           Dense(l.attn_out, s_.ctx, out, n_tokens, error_msg);
+    return !project_output || AttentionOutput(l, out, n_tokens, error_msg);
   }
   if (MatrixRows(n_tokens) && attend(0, n_tokens, last_only)) {
-    return !project_output ||
-           Dense(l.attn_out, s_.ctx, out, n_tokens, error_msg);
+    return !project_output || AttentionOutput(l, out, n_tokens, error_msg);
   }
   // Narrow batches split each row's key tiles over kAttnSplits blocks so a
   // decode step at depth fills the device.
@@ -3112,7 +3144,32 @@ bool Executor::Attention(const DeviceLayer& l, Session::AttentionState& s,
                  error_msg);
   }
   SigmoidMul(s_.ctx, s_.attn_gate, ctx_count, stream_);
-  return !project_output || Dense(l.attn_out, s_.ctx, out, n_tokens, error_msg);
+  return !project_output || AttentionOutput(l, out, n_tokens, error_msg);
+}
+
+bool Executor::AttentionOutput(const DeviceLayer& l, float* out,
+                               std::uint32_t n_tokens,
+                               std::string* error_msg) const {
+  const Config& c = config();
+  const std::uint32_t q_dim = c.AttentionQDim();
+  // The UD 3.1 Q6_K output projection (K = 6144) is wider than the F16
+  // staging rows, so wide prefill narrows the gated context into the Q/gate
+  // projection rows instead: s_.qg is dead once attention has consumed q
+  // and the gate, and holds T * 13312 floats, room for T * 6144 halves.
+  if (l.attn_out.type == GgmlType::kQ6_K && WidePrefill(n_tokens) &&
+      n_tokens <= options_.max_batch && l.attn_out.cols == q_dim &&
+      q_dim % 256 == 0 && s_.qg != nullptr) {
+    auto* ctx_half = reinterpret_cast<__half*>(s_.qg);
+    NarrowActivations(s_.ctx, ctx_half, false,
+                      static_cast<std::size_t>(n_tokens) * q_dim, stream_);
+    if (!DenseF16Gemm(l.attn_out.data, ctx_half, out, n_tokens,
+                      l.attn_out.rows, q_dim, stream_, 0, WeightType::kQ6_K)) {
+      AssignError(error_msg, "attention output Q6_K F16 GEMM failed");
+      return false;
+    }
+    return true;
+  }
+  return Dense(l.attn_out, s_.ctx, out, n_tokens, error_msg);
 }
 
 bool Executor::Moe(const DeviceLayer& l, const float* x, float* out,
@@ -3147,12 +3204,26 @@ bool Executor::Moe(const DeviceLayer& l, const float* x, float* out,
   // main-stream work may use s_.x_q8t before JoinSide.
   // Only the Q8_0 shared expert overlaps: its kernels take stream_, while
   // the BF16, F16 and F32 routes go through BLAS handles bound to the main
-  // stream.
+  // stream. The UD 3.1 Q6_K gate/up overlap too when both take the F16
+  // matrix-core route: they read the F16 rows of x from s_.x_half, which
+  // the main stream prepares before the fork and the routed experts only
+  // read, so neither stream writes a buffer the other uses.
+  const bool q6k_shared =
+      l.shexp_gate.type == GgmlType::kQ6_K &&
+      l.shexp_up.type == GgmlType::kQ6_K &&
+      l.shexp_down.type == GgmlType::kQ8_0 &&
+      l.shexp_gate.cols == c.hidden_size && l.shexp_up.cols == c.hidden_size &&
+      n_tokens <= options_.max_batch && DenseF16Route(l.shexp_gate, n_tokens) &&
+      DenseF16Route(l.shexp_up, n_tokens);
   const bool overlap = ExpertMatrixRows(n_tokens) && !last_only &&
-                       l.shexp_gate.type == GgmlType::kQ8_0 &&
-                       l.shexp_up.type == GgmlType::kQ8_0 &&
-                       l.shexp_down.type == GgmlType::kQ8_0;
+                       ((l.shexp_gate.type == GgmlType::kQ8_0 &&
+                         l.shexp_up.type == GgmlType::kQ8_0 &&
+                         l.shexp_down.type == GgmlType::kQ8_0) ||
+                        q6k_shared);
   const hipStream_t main = stream_;
+  if (overlap && q6k_shared) {
+    PrepareHalfInput(x, n_tokens, c.hidden_size);
+  }
   if (overlap) {
     if (!Check(hipEventRecord(side_start_, main), "side stream fork",
                error_msg) ||

@@ -194,6 +194,22 @@ extern "C" int fniq_mmq_q8_0_dense(
     return fniq_mmq_dense_impl<GGML_TYPE_Q8_0>("fniq_mmq_q8_0_dense", W, X, out, M, N, K, stream);
 }
 
+extern "C" int fniq_mmq_dense(
+        int weight_type, const void * W, const float * X, float * out,
+        int M, int N, int K, hipStream_t stream) {
+    switch (static_cast<ggml_type>(weight_type)) {
+        case GGML_TYPE_Q6_K:
+            return fniq_mmq_dense_impl<GGML_TYPE_Q6_K>("fniq_mmq_dense(Q6_K)", W, X, out, M, N, K, stream);
+        case GGML_TYPE_Q4_K:
+            return fniq_mmq_dense_impl<GGML_TYPE_Q4_K>("fniq_mmq_dense(Q4_K)", W, X, out, M, N, K, stream);
+        case GGML_TYPE_Q5_0:
+            return fniq_mmq_dense_impl<GGML_TYPE_Q5_0>("fniq_mmq_dense(Q5_0)", W, X, out, M, N, K, stream);
+        default:
+            fprintf(stderr, "fniq_mmq_dense: unsupported weight type %d\n", weight_type);
+            return -1;
+    }
+}
+
 template <ggml_type type>
 int fniq_mmq_moe_impl(
         const char    * tag,
@@ -837,5 +853,7 @@ template void mul_mat_q_case<GGML_TYPE_IQ2_S>(
 template void mul_mat_q_case<GGML_TYPE_Q5_0>(
     ggml_backend_hip_context&, const mmq_args&, hipStream_t);
 template void mul_mat_q_case<GGML_TYPE_Q2_0>(
+    ggml_backend_hip_context&, const mmq_args&, hipStream_t);
+template void mul_mat_q_case<GGML_TYPE_Q6_K>(
     ggml_backend_hip_context&, const mmq_args&, hipStream_t);
 } // namespace fniq_mmq

@@ -326,6 +326,87 @@ void CheckQ6KHead(int rows, int cols) {
     CheckHip(hipFree(p), "free");
 }
 
+/// Wide dense batches (prefill) of the Q6_K trunk projections and the Q5_0
+/// sidecar ones through the tiled MMQ GEMM, against F64.
+void CheckDenseMmq(const Format& f, int rows, int cols, int tokens) {
+  const std::string tag = std::string("dense MMQ ") + f.name +
+                          " m=" + std::to_string(rows) +
+                          " k=" + std::to_string(cols) +
+                          " n=" + std::to_string(tokens);
+  const Weights w = Make(f, 1, rows, cols, 0xD3D3U + rows + tokens);
+  std::vector<float> x(static_cast<std::size_t>(tokens) * cols);
+  std::uint32_t seed = 4242U + tokens;
+  for (auto& v : x)
+    v = Uniform(&seed, 3.0F);
+  std::vector<double> ref(static_cast<std::size_t>(tokens) * rows);
+  for (int t = 0; t < tokens; ++t)
+    for (int r = 0; r < rows; ++r)
+      ref[static_cast<std::size_t>(t) * rows + r] =
+          Dot(w.values.data() + static_cast<std::size_t>(r) * cols,
+              x.data() + static_cast<std::size_t>(t) * cols, cols);
+  auto* dw = Upload(w.packed);
+  auto* dx = Upload(x);
+  const std::vector<float> zeros(ref.size());
+  auto* out = Upload(zeros);
+  Expect(!fniq_mmq_dense(static_cast<int>(f.type), dw, dx, out, rows, tokens,
+                         cols, nullptr),
+         tag + ": launch failed");
+  CheckHip(hipDeviceSynchronize(), "dense MMQ");
+  const double error = RelativeError(Download(out, ref.size()), ref);
+  Expect(error < 1e-2, tag + ": error " + std::to_string(error));
+  std::cout << tag << ": rel err " << error << '\n';
+  for (void* p : {static_cast<void*>(dw), static_cast<void*>(dx),
+                  static_cast<void*>(out)})
+    CheckHip(hipFree(p), "free");
+}
+
+/// Wide Q6_K projections on the F16 matrix cores (prefill route of the UD 3.1
+/// trunk): F16 activations, Q6_K rows decoded to F16 in LDS, against F64
+/// over the CPU dequantizer and the same F16-rounded activations.
+void CheckDenseF16Q6K(int rows, int cols, int tokens) {
+  const std::string tag = "dense F16 Q6_K m=" + std::to_string(rows) +
+                          " k=" + std::to_string(cols) +
+                          " n=" + std::to_string(tokens);
+  const Weights w = Make(kQ6_K, 1, rows, cols, 0xF16AU + rows + tokens);
+  std::vector<__half> x(static_cast<std::size_t>(tokens) * cols);
+  std::uint32_t seed = 777U + tokens;
+  for (auto& v : x)
+    v = __float2half(Uniform(&seed, 3.0F));
+  auto* dw = Upload(w.packed);
+  auto* dx = Upload(x);
+  const std::vector<float> zeros(static_cast<std::size_t>(tokens) * rows);
+  auto* out = Upload(zeros);
+  Expect(q::DenseF16Gemm(dw, dx, out, tokens, rows, cols, nullptr, 0,
+                         q::WeightType::kQ6_K),
+         tag + ": launch rejected");
+  CheckHip(hipDeviceSynchronize(), "dense F16 Q6_K");
+  const auto got = Download(out, zeros.size());
+  // F64 references for a deterministic sample of (token, row) pairs that
+  // covers every tile position plus the last token and row.
+  std::vector<float> sampled;
+  std::vector<double> ref;
+  const auto check = [&](int t, int r) {
+    double acc = 0.0;
+    for (int i = 0; i < cols; ++i)
+      acc += static_cast<double>(
+                 w.values[static_cast<std::size_t>(r) * cols + i]) *
+             __half2float(x[static_cast<std::size_t>(t) * cols + i]);
+    ref.push_back(acc);
+    sampled.push_back(got[static_cast<std::size_t>(t) * rows + r]);
+  };
+  for (int t = 0; t < tokens; t += 7)
+    for (int r = t % 13; r < rows; r += 53)
+      check(t, r);
+  check(tokens - 1, rows - 1);
+  const double error = RelativeError(sampled, ref);
+  // F16 weights (d * sc rounded to F16) and F32 accumulation.
+  Expect(error < 2e-3, tag + ": error " + std::to_string(error));
+  std::cout << tag << ": rel err " << error << '\n';
+  for (void* p : {static_cast<void*>(dw), static_cast<void*>(dx),
+                  static_cast<void*>(out)})
+    CheckHip(hipFree(p), "free");
+}
+
 /// Token embedding gather (the UD 3.1 IQ4_XS token_embd): every gathered row,
 /// replicated over the hyper-connection streams, equals the CPU dequantizer.
 void CheckEmbed(const Format& f, q::WeightType type, int vocab, int hidden) {
@@ -393,6 +474,22 @@ int main() {
     CheckRouted(kQ2_0, 2561, 640, 9, 1);
     CheckQ6KHead(300, 2560);
     CheckQ6KHead(301, 2560);
+    // Prefill-width dense projections: Q6_K trunk (attention qkv/gate,
+    // shared-expert gate/up) and the Q5_0 MTP sidecar mixers; ragged rows
+    // and token counts that do not fill a tile.
+    for (int n : {9, 64, 333, 2048}) {
+      CheckDenseMmq(kQ6_K, 2560, 2560, n);
+      CheckDenseMmq(kQ6_K, 641, 2560, n);
+      CheckDenseMmq(kQ5_0, 1280, 2560, n);
+    }
+    // Prefill on the F16 matrix cores: the stacked attention projection,
+    // the stacked SSM input, the shared-expert gate/up; narrow (< 96) and
+    // wide (>= 1024) token tiers, ragged token counts.
+    for (int n : {64, 333, 1024, 1500}) {
+      CheckDenseF16Q6K(13312, 2560, n);
+      CheckDenseF16Q6K(640, 2560, n);
+    }
+    CheckDenseF16Q6K(16384, 2560, 1100);
     // Token embeddings: UD 3.1 ships token_embd as IQ4_XS; Q8_0 is the
     // earlier export and the MTP sidecar's.
     CheckEmbed(kIQ4_XS, q::WeightType::kIQ4_XS, 4099, 2560);

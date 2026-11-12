@@ -40,14 +40,19 @@ void RestoreGdnState(float* state, RollbackRows snapshots, std::uint32_t keep,
 enum class WeightType : std::uint32_t {
   kF32 = 0,
   kF16 = 1,
+  kQ5_0 = 6,
   kQ5_1 = 7,
   kQ8_0 = 8,
   kQ4_K = 12,
   kQ5_K = 13,
+  kQ6_K = 14,
+  kIQ3_XXS = 18,
   kIQ4_NL = 20,
   kIQ3_S = 21,
+  kIQ2_S = 22,
   kIQ4_XS = 23,
   kBF16 = 30,
+  kQ2_0 = 42,
 };
 
 /// res[t][s][hidden] = table[tokens[t]] for every stream s (Q8_0 rows).
@@ -258,7 +263,8 @@ bool AttentionF16Gemm(const void* weights, const __half* input,
                       std::uint32_t n_tokens, const std::uint32_t* position,
                       float theta, float eps, hipStream_t stream,
                       const qwen_iq::vision::DeviceRope* rope = nullptr,
-                      const YarnRope& yarn = {});
+                      const YarnRope& yarn = {},
+                      WeightType type = WeightType::kQ8_0);
 
 /// Exact Q8_0 HC up projection and F16-input mixer for the Flash Next
 /// 2560-hidden, rank-320 geometry. Returns false below 96 tokens or for other
@@ -275,9 +281,12 @@ bool UnquantizedF16Gemm(const void* w, const __half* x, float* out,
                         hipStream_t stream);
 /// input_stride is in half elements; zero means k. Padded rows are supported
 /// by the wide SSM output projection (batch >= 1024, m=2560, k=6144).
+/// `type` is Q8_0 or Q6_K (k a multiple of 256); the attention and SSM
+/// launchers below take the same two weight formats.
 bool DenseF16Gemm(const void* w, const __half* x, float* out, std::size_t batch,
                   std::size_t m, std::size_t k, hipStream_t stream,
-                  std::size_t input_stride = 0);
+                  std::size_t input_stride = 0,
+                  WeightType type = WeightType::kQ8_0);
 /// BF16 weight rows [m][k] times BF16 activation rows [batch][k] with one
 /// F32 K16 chain per output, in K order for every token: a row's result does
 /// not depend on its position in the batch (BlasLt::Gemm). out is [batch][m].
@@ -311,7 +320,8 @@ bool DenseF16SsmGemm(const void* w, const __half* x, const float* conv_w,
                      std::uint32_t channels, std::uint32_t kernel,
                      hipStream_t stream, PassCheckpoints checkpoints = {},
                      hipStream_t z_stream = nullptr,
-                     hipEvent_t z_start = nullptr);
+                     hipEvent_t z_start = nullptr,
+                     WeightType type = WeightType::kQ8_0);
 
 /// Routed expert GEMMs. RoutedCompact sorts the (token, slot) assignments
 /// by expert into `rows_token`/`rows_slot` (RoutedCompactRows(slots,

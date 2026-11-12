@@ -229,9 +229,9 @@ struct Uploader {
   /// Uploads matrices of one type stacked along rows; every input shares
   /// `cols`. An F32 stack (router logits, GDN alpha/beta: the only
   /// unquantized projections) is narrowed to F16, which the wide-batch GEMM
-  /// tier runs at speed. A Q8_0 stack merges projections of one input into
-  /// a single decode GEMV, unless `expand_q8` asks for the F32 stack's F16
-  /// route over its dequantized values.
+  /// tier runs at speed. A Q8_0 or Q6_K stack merges projections of one input
+  /// into a single decode GEMV, unless `expand_q8` asks for the F32 stack's
+  /// F16 route over a Q8_0 stack's dequantized values.
   DeviceTensor Stack(std::initializer_list<const TensorRef*> parts,
                      bool expand_q8 = false) {
     DeviceTensor d;
@@ -243,8 +243,9 @@ struct Uploader {
     const core::GgmlType type = (*parts.begin())->type;
     for (const TensorRef* t : parts) {
       if (t->empty() || t->type != type || t->cols != (*parts.begin())->cols ||
-          (type != core::GgmlType::kF32 && type != core::GgmlType::kQ8_0)) {
-        Fail("stacked upload needs F32 or Q8_0 tensors of one shape");
+          (type != core::GgmlType::kF32 && type != core::GgmlType::kQ8_0 &&
+           type != core::GgmlType::kQ6_K)) {
+        Fail("stacked upload needs F32, Q8_0 or Q6_K tensors of one shape");
         return d;
       }
       rows += t->rows;
@@ -268,7 +269,10 @@ struct Uploader {
         offset += t->SizeBytes();
       }
     }
-    if (type == core::GgmlType::kQ8_0 && !expand_q8) {
+    if ((type == core::GgmlType::kQ8_0 && !expand_q8) ||
+        type == core::GgmlType::kQ6_K) {
+      // Quantized rows concatenate as stored: one GEMV (decode) or one F16
+      // GEMM (prefill) covers every projection of the shared input.
       if (Measuring()) {
         return d;
       }
@@ -330,11 +334,16 @@ struct Uploader {
     d.linear = l.linear;
     d.hc_attn = Mixer(l.hc_attn);
     d.hc_ffn = Mixer(l.hc_ffn);
-    // Projections of one input are stacked into one Q8_0 GEMV where the
-    // quantization allows; otherwise they stay separate.
+    // Projections of one input are stacked into one GEMV where they share a
+    // quantization (Q8_0, or Q6_K in the UD 3.1 trunk); otherwise they stay
+    // separate.
     const auto stackable = [](std::initializer_list<const TensorRef*> parts) {
+      const core::GgmlType type = (*parts.begin())->type;
+      if (type != core::GgmlType::kQ8_0 && type != core::GgmlType::kQ6_K) {
+        return false;
+      }
       for (const TensorRef* t : parts) {
-        if (t->empty() || t->type != core::GgmlType::kQ8_0 ||
+        if (t->empty() || t->type != type ||
             t->cols != (*parts.begin())->cols) {
           return false;
         }

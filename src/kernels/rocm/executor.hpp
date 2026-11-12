@@ -616,6 +616,9 @@ private:
                  bool last_only = false, bool projections_ready = false,
                  bool project_output = true,
                  PassCheckpoints checkpoints = {}) const;
+  /// The attention output projection of the gated context rows s_.ctx.
+  bool AttentionOutput(const DeviceLayer& l, float* out,
+                       std::uint32_t n_tokens, std::string* error_msg) const;
   /// Orders the main stream after the work queued on side_stream_.
   bool JoinSide(std::string* error_msg) const;
   bool Moe(const DeviceLayer& l, const float* x, float* out,

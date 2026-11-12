@@ -25,6 +25,12 @@ int fniq_mmq_q8_0_dense(
     int           K,
     hipStream_t  stream);
 
+/* Tiled MMQ GEMM for wide dense batches of the K-quant/Q5_0 projections
+ * (Q6_K trunk attention and shared experts, Q4_K/Q5_0 MTP sidecar):
+ * out[N][M] = X[N][K] * W[M][K]^T. X is quantized to Q8_1 internally. */
+int fniq_mmq_dense(int weight_type, const void* W, const float* X_f32,
+                   float* out_f32, int M, int N, int K, hipStream_t stream);
+
 int fniq_mmq_q4_K_moe_pair_unique(const void* W_a, const void* W_b,
                                  const float* X_f32, const int32_t* ids,
                                  float* out_a, float* out_b, int M, int K,

@@ -7849,6 +7849,23 @@ struct AttentionProjectionOutput {
   YarnRope yarn;
 };
 
+/// Nine dwords from a dword-aligned address (two 16-byte loads and one 4):
+/// the window around a 32-byte run that may start 2 bytes past it.
+__device__ __forceinline__ void LoadDwords9(const std::uint32_t* p,
+                                            std::uint32_t* w) {
+  struct alignas(4) Quad {
+    std::uint32_t v[4];
+  };
+  const Quad q0 = *reinterpret_cast<const Quad*>(p);
+  const Quad q1 = *reinterpret_cast<const Quad*>(p + 4);
+#pragma unroll
+  for (int i = 0; i < 4; ++i) {
+    w[i] = q0.v[i];
+    w[4 + i] = q1.v[i];
+  }
+  w[8] = p[8];
+}
+
 /// Dense F16 WMMA GEMM over Q8_0 or F16 weights: block = BM rows x BN tokens,
 /// BK 32-element K blocks per LDS stage, waves = WM row groups x WN token
 /// groups. The codes are dequantized to F16 once per stage as they are
@@ -7857,10 +7874,13 @@ struct AttentionProjectionOutput {
 /// accumulate in F32 with no per-block scaling. SSM waves retain their
 /// decoded weight rows in registers instead of staging them in LDS. F16 weights
 /// skip decoding and use the same ordered K16 products. y is [batch][m].
+/// kQ6K reads Q6_K rows instead of Q8_0 (the UD 3.1 trunk projections): each
+/// K32 block is decoded from its 32 low-nibble and 32 high-bit bytes to the
+/// same offset byte codes, with one F16 scale per K16 half (d * sc).
 template<int BM, int BN, int BK, int WM, int WN, int kRowGroup = 1,
          bool kHcMix = false, bool kSsmConv = false, bool kAttention = false,
          bool kHalfWeights = false, bool kBf16 = false, bool kStrided = false,
-         bool kYarn = false>
+         bool kYarn = false, bool kQ6K = false>
 __launch_bounds__(256) __global__ void DenseF16GEMMKernel(
     const void* __restrict__ w, const __half* __restrict__ x,
     float* __restrict__ y, std::size_t batch, std::size_t m, std::size_t k,
@@ -7872,12 +7892,16 @@ __launch_bounds__(256) __global__ void DenseF16GEMMKernel(
   static_assert(WM * WN == 8, "256 threads is 8 waves");
   static_assert(BM % (16 * WM) == 0 && BN % (16 * WN) == 0);
   static_assert(!(kBf16 && kHalfWeights));
+  static_assert(!(kQ6K && (kBf16 || kHalfWeights || kHcMix)),
+                "Q6_K rows are a quantized weight layout");
   // 16-bit weight rows staged as they are: F16, or BF16 with BF16
   // activations.
   constexpr bool kRawWeights = kHalfWeights || kBf16;
   constexpr bool kRegisterWeights = kSsmConv;
+  // Q6_K stages one K block at a time: its raw prefetch is half again Q8_0's
+  // and two blocks' worth spills the register-resident SSM wave.
   static_assert(!kRegisterWeights ||
-                (BM == 256 && BK == 2 && WM == 8 && WN == 1));
+                (BM == 256 && BK == (kQ6K ? 1 : 2) && WM == 8 && WN == 1));
   constexpr int kRowTiles = BM / 16;
   constexpr int kTokTiles = BN / 16;
   constexpr int kWaveRowTiles = kRowTiles / WM;
@@ -7940,9 +7964,14 @@ __launch_bounds__(256) __global__ void DenseF16GEMMKernel(
     // Interleave the four gate streams within the tile, without repacking
     // weights. Each group of four rows produces one mixed hidden element.
     const int weight_row = kHcMix ? (r % 4) * (m_i / 4) + r / 4 : r;
+    // Bytes per weight row: 64 per K32 block for 16-bit rows, 34 for Q8_0,
+    // 210 per 256-element Q6_K superblock.
+    const std::size_t row_bytes =
+        kQ6K ? static_cast<std::size_t>(num_kb / 8) * 210
+             : static_cast<std::size_t>(num_kb) * (kRawWeights ? 64 : 34);
     a_ptr[p] = w_bytes +
                static_cast<std::size_t>(a_live[p] ? weight_row : (m_i - 1)) *
-                   static_cast<std::size_t>(num_kb) * (kRawWeights ? 64 : 34);
+                   row_bytes;
   }
   const __half* b_ptr[kBPer];
 #pragma unroll
@@ -7954,9 +7983,23 @@ __launch_bounds__(256) __global__ void DenseF16GEMMKernel(
             ? x + (static_cast<std::size_t>(t) * (kStrided ? input_stride : k))
             : nullptr;
   }
-  uint4 a_codes[kAPer][2];
+  uint4 a_codes[kQ6K ? 1 : kAPer][2];
   uint4 a_half[kRawWeights ? kAPer : 1][4];
-  std::uint32_t a_d[kAPer];
+  std::uint32_t a_d[kAPer];  ///< Q8_0: d. Q6_K: d | sc0 << 16 | sc1 << 24
+  // Q6_K: a unit's K blocks within one 128-element superblock half share
+  // the half's 32 high-bit bytes and 8 scale bytes, and quarters 0/2 and
+  // 1/3 share their 32 low-nibble bytes. Each unit caches its half when it
+  // enters it (once per four K blocks, or two at BK = 2) and decodes every
+  // later K block of the half from registers, so the rows stream at the
+  // format's own 26 bytes per K block. Superblocks are 210 bytes, so every
+  // other one starts 2 bytes past a dword: runs are fetched as the dword
+  // windows around them and aligned when committed (v_alignbit).
+  constexpr int kQlDwords = BK == 1 ? 17 : 9;  // both low-nibble runs, or one
+  std::uint32_t c_ql[kQ6K ? kAPer : 1][kQlDwords];
+  std::uint32_t c_qh[kQ6K ? kAPer : 1][9];
+  std::uint32_t c_sc[kQ6K ? kAPer : 1][3];
+  std::uint32_t c_dm[kQ6K ? kAPer : 1];  ///< d | alignment shift << 16
+  int q6_kb0 = 0;  ///< the fetched stage's first K block (wave-uniform)
   uint4 b_data[kBPer][4];
 
   const auto fetch_stage = [&](int kb0) {
@@ -7970,6 +8013,37 @@ __launch_bounds__(256) __global__ void DenseF16GEMMKernel(
 #pragma unroll
         for (int c = 0; c < 4; ++c)
           a_half[p][c] = live ? src[c] : make_uint4(0u, 0u, 0u, 0u);
+      } else if constexpr (kQ6K) {
+        // block_q6_K: ql[128], qh[64], int8 scales[16], f16 d. K32 block ib
+        // of a superblock lies in 128-element half ib / 4, quarter ib % 4:
+        // low nibbles ql[64 h + 32 (ib & 1)] shifted by 4 (ib >> 1 & 1),
+        // high bits qh[32 h] shifted by 2 (ib % 4), scales sc[8 h + 2 q].
+        q6_kb0 = kb0;
+        const int kbl = kb < num_kb ? kb : (num_kb - 1);
+        const int ib = kbl % 8;
+        if ((ib & 3) < BK) {
+          // First K block of this unit in the half: cache the half.
+          const int half = ib / 4;
+          const std::uint8_t* blk =
+              a_ptr[p] + static_cast<std::size_t>(kbl / 8) * 210;
+          const auto addr = reinterpret_cast<std::uintptr_t>(blk);
+          const auto* base = reinterpret_cast<const std::uint32_t*>(
+              addr & ~static_cast<std::uintptr_t>(3));
+          if constexpr (BK == 1) {
+            LoadDwords9(base + (16 * half), &c_ql[p][0]);
+            LoadDwords9(base + (16 * half) + 8, &c_ql[p][8]);
+          } else {
+            LoadDwords9(base + (16 * half) + (8 * (ib & 1)), &c_ql[p][0]);
+          }
+          LoadDwords9(base + 32 + (8 * half), c_qh[p]);
+#pragma unroll
+          for (int i = 0; i < 3; ++i)
+            c_sc[p][i] = base[48 + (2 * half) + i];
+          const std::uint32_t d =
+              *reinterpret_cast<const std::uint16_t*>(blk + 208);
+          c_dm[p] = (a_live[p] ? d : 0U) |
+                    (static_cast<std::uint32_t>(addr & 3U) << 19U);
+        }
       } else {
         const std::uint8_t* blk =
             a_ptr[p] +
@@ -8017,18 +8091,67 @@ __launch_bounds__(256) __global__ void DenseF16GEMMKernel(
         for (int c = 0; c < 4; ++c)
           s_a[kk][row][swizzle(row, c)] = a_half[p][c];
       } else {
-        // Q8_0 codes are signed; flipping the sign bit carries q + 128, which
-        // the 1152 magic takes back out.
-        const std::uint32_t words[8] = {
-            a_codes[p][0].x, a_codes[p][0].y, a_codes[p][0].z, a_codes[p][0].w,
-            a_codes[p][1].x, a_codes[p][1].y, a_codes[p][1].z, a_codes[p][1].w};
-        const __half2 scale2 = __half2half2(
-            __builtin_bit_cast(__half, static_cast<std::uint16_t>(a_d[p])));
         __half2 h[16];
+        if constexpr (kQ6K) {
+          // v = nibble | high bits << 4 in [0, 63]; the code q = v - 32 is
+          // carried as q + 128 = v + 96 per byte (no carries: v + 96 < 256).
+          const int ib = (q6_kb0 + (kRegisterWeights ? p : kk)) % 8;
+          const int quarter = ib % 4;
+          const std::uint32_t nib_shift =
+              4U * static_cast<std::uint32_t>((ib >> 1) & 1);
+          const std::uint32_t qh_shift =
+              2U * static_cast<std::uint32_t>(quarter);
+          const std::uint32_t mis = (c_dm[p] >> 16U) & 0x18U;  // 0 or 16
+          // BK = 1 caches both low-nibble runs: odd quarters read the second.
+          const bool second = BK == 1 && (ib & 1) != 0;
+          std::uint32_t words[8];
+          std::uint32_t qh[8];
 #pragma unroll
-        for (int i = 0; i < 8; ++i) {
-          CodesToHalves(words[i] ^ 0x80808080U, magic, scale2, zero2, h[2 * i],
-                        h[2 * i + 1]);
+          for (int i = 0; i < 8; ++i) {
+            const std::uint32_t lo =
+                BK == 1 && second ? c_ql[p][8 + i] : c_ql[p][i];
+            const std::uint32_t hi =
+                BK == 1 && second ? c_ql[p][9 + i] : c_ql[p][i + 1];
+            words[i] = __builtin_amdgcn_alignbit(hi, lo, mis);
+            qh[i] = __builtin_amdgcn_alignbit(c_qh[p][i + 1], c_qh[p][i], mis);
+          }
+          // Scales 2q and 2q + 1 of the half's eight.
+          const std::uint32_t sc_lo =
+              __builtin_amdgcn_alignbit(c_sc[p][1], c_sc[p][0], mis);
+          const std::uint32_t sc_hi =
+              __builtin_amdgcn_alignbit(c_sc[p][2], c_sc[p][1], mis);
+          const std::uint32_t sc_pair =
+              ((quarter < 2 ? sc_lo : sc_hi) >> (16U * (quarter & 1))) &
+              0xFFFFU;
+          const float d = __half2float(__builtin_bit_cast(
+              __half, static_cast<std::uint16_t>(c_dm[p] & 0xFFFFU)));
+          const auto sc0 = static_cast<std::int8_t>(sc_pair & 0xFFU);
+          const auto sc1 = static_cast<std::int8_t>(sc_pair >> 8U);
+          const __half2 scale_lo =
+              __float2half2_rn(d * static_cast<float>(sc0));
+          const __half2 scale_hi =
+              __float2half2_rn(d * static_cast<float>(sc1));
+#pragma unroll
+          for (int i = 0; i < 8; ++i) {
+            const std::uint32_t v = ((words[i] >> nib_shift) & 0x0F0F0F0FU) |
+                                    (((qh[i] >> qh_shift) & 0x03030303U) << 4U);
+            CodesToHalves(v + 0x60606060U, magic, i < 4 ? scale_lo : scale_hi,
+                          zero2, h[2 * i], h[2 * i + 1]);
+          }
+        } else {
+          // Q8_0 codes are signed; flipping the sign bit carries q + 128,
+          // which the 1152 magic takes back out.
+          const std::uint32_t words[8] = {
+              a_codes[p][0].x, a_codes[p][0].y, a_codes[p][0].z,
+              a_codes[p][0].w, a_codes[p][1].x, a_codes[p][1].y,
+              a_codes[p][1].z, a_codes[p][1].w};
+          const __half2 scale2 = __half2half2(
+              __builtin_bit_cast(__half, static_cast<std::uint16_t>(a_d[p])));
+#pragma unroll
+          for (int i = 0; i < 8; ++i) {
+            CodesToHalves(words[i] ^ 0x80808080U, magic, scale2, zero2,
+                          h[2 * i], h[2 * i + 1]);
+          }
         }
         if constexpr (kRegisterWeights) {
           __builtin_memcpy(&own_a_lo[p], &h[0], 32);
@@ -8401,8 +8524,8 @@ __launch_bounds__(256) __global__ void DenseF16GEMMKernel(
         const auto* src = reinterpret_cast<const float4*>(
             tile_scratch + (tok_l * kOutputStride) + row_l);
         if constexpr (kSsmConv) {
-          static_assert(BM == 256 && BN == 128 && BK == 2 && WM == 8 &&
-                        WN == 1);
+          static_assert(BM == 256 && BN == 128 && BK == (kQ6K ? 1 : 2) &&
+                        WM == 8 && WN == 1);
           static_assert(!kHcMix);
           constexpr std::uint32_t channels = 10240;
           if (tok < batch) {
@@ -8467,7 +8590,8 @@ __launch_bounds__(256) __global__ void DenseF16GEMMKernel(
   }
 }
 
-bool AttentionF16Gemm(const void* weights, const __half* input,
+template<bool kQ6K>
+bool AttentionF16GemmImpl(const void* weights, const __half* input,
                       const float* q_gamma, const float* k_gamma, float* query,
                       float* gate, __half* keys, __half* values,
                       std::uint32_t n_tokens, const std::uint32_t* position,
@@ -8488,19 +8612,41 @@ bool AttentionF16Gemm(const void* weights, const __half* input,
   // stage to 24 KB, so three blocks share a WGP instead of two (7.8 to
   // 7.3 ms); the K order is unchanged.
   if (yarn.enabled != 0) {
-    hipLaunchKernelGGL((DenseF16GEMMKernel<256, 128, 1, 8, 1, 4, false, false,
-                                           true, false, false, false, true>),
+    hipLaunchKernelGGL(
+        (DenseF16GEMMKernel<256, 128, 1, 8, 1, 4, false, false, true, false,
+                            false, false, true, kQ6K>),
                        dim3((n_tokens + 127) / 128, 52), dim3(kThreads), 0,
                        stream, weights, input, nullptr, n_tokens, 13312, 2560,
                        nullptr, nullptr, nullptr, nullptr, nullptr, output);
     return true;
   }
   hipLaunchKernelGGL(
-      (DenseF16GEMMKernel<256, 128, 1, 8, 1, 4, false, false, true>),
+      (DenseF16GEMMKernel<256, 128, 1, 8, 1, 4, false, false, true, false,
+                          false, false, false, kQ6K>),
       dim3((n_tokens + 127) / 128, 52), dim3(kThreads), 0, stream, weights,
       input, nullptr, n_tokens, 13312, 2560, nullptr, nullptr, nullptr, nullptr,
       nullptr, output);
   return true;
+}
+
+bool AttentionF16Gemm(const void* weights, const __half* input,
+                      const float* q_gamma, const float* k_gamma, float* query,
+                      float* gate, __half* keys, __half* values,
+                      std::uint32_t n_tokens, const std::uint32_t* position,
+                      float theta, float eps, hipStream_t stream,
+                      const qwen_iq::vision::DeviceRope* rope,
+                      const YarnRope& yarn,
+                      WeightType type) {
+  if (type == WeightType::kQ6_K) {
+    return AttentionF16GemmImpl<true>(weights, input, q_gamma, k_gamma, query,
+                                      gate, keys, values, n_tokens, position,
+                                      theta, eps, stream, rope, yarn);
+  }
+  if (type != WeightType::kQ8_0)
+    return false;
+  return AttentionF16GemmImpl<false>(weights, input, q_gamma, k_gamma, query,
+                                     gate, keys, values, n_tokens, position,
+                                     theta, eps, stream, rope, yarn);
 }
 
 bool HcMixF16Gemm(const void* up, const __half* low_rank, const __half* xn,
@@ -8561,9 +8707,10 @@ bool DenseBf16Gemm(const void* w, const void* x, float* out, std::size_t batch,
   return true;
 }
 
-bool DenseF16Gemm(const void* w, const __half* x, float* out, std::size_t batch,
-                  std::size_t m, std::size_t k, hipStream_t stream,
-                  std::size_t input_stride) {
+template<bool kQ6K>
+bool DenseF16GemmImpl(const void* w, const __half* x, float* out,
+                      std::size_t batch, std::size_t m, std::size_t k,
+                      hipStream_t stream, std::size_t input_stride) {
   if (m == 0 || k == 0 || batch == 0 || k % 32 != 0) {
     return false;
   }
@@ -8573,7 +8720,7 @@ bool DenseF16Gemm(const void* w, const __half* x, float* out, std::size_t batch,
       return false;
     hipLaunchKernelGGL(
         (DenseF16GEMMKernel<256, 128, 2, 8, 1, 5, false, false, false, false,
-                            false, true>),
+                            false, true, false, kQ6K>),
         dim3((batch + 127) / 128, (m + 255) / 256), dim3(kThreads), 0, stream,
         w, x, out, batch, m, k, nullptr, nullptr, nullptr, nullptr, nullptr,
         AttentionProjectionOutput{}, PassCheckpoints{}, input_stride);
@@ -8587,7 +8734,10 @@ bool DenseF16Gemm(const void* w, const __half* x, float* out, std::size_t batch,
     constexpr int kNarrowBM = 64;
     const dim3 grid(static_cast<unsigned int>((batch + kBN - 1) / kBN),
                     static_cast<unsigned int>((m + kNarrowBM - 1) / kNarrowBM));
-    hipLaunchKernelGGL((DenseF16GEMMKernel<kNarrowBM, kBN, 2, 2, 4>), grid,
+    hipLaunchKernelGGL(
+        (DenseF16GEMMKernel<kNarrowBM, kBN, 2, 2, 4, 1, false, false, false,
+                            false, false, false, false, kQ6K>),
+        grid,
                        dim3(kThreads), 0, stream, w, x, out, batch, m, k);
   } else if (batch >= 96) {
     // 64 x 64 wave tiles: half the LDS fragment bytes per matrix product
@@ -8597,7 +8747,10 @@ bool DenseF16Gemm(const void* w, const __half* x, float* out, std::size_t batch,
     const dim3 grid(static_cast<unsigned int>((batch + kBN - 1) / kBN),
                     static_cast<unsigned int>((m + kWideBM - 1) / kWideBM));
     if (m == 10240 && k == 320 && batch >= 1024) {
-      hipLaunchKernelGGL((DenseF16GEMMKernel<kWideBM, kBN, 1, 4, 2, 8>), grid,
+      hipLaunchKernelGGL(
+          (DenseF16GEMMKernel<kWideBM, kBN, 1, 4, 2, 8, false, false, false,
+                              false, false, false, false, kQ6K>),
+                         grid,
                          dim3(kThreads), 0, stream, w, x, out, batch, m, k);
     } else if (batch >= 1024 && m == 2560 && k == 6144) {
       // The output projection's activation is 50 MB at 4,096 tokens. In
@@ -8605,32 +8758,62 @@ bool DenseF16Gemm(const void* w, const __half* x, float* out, std::size_t batch,
       // it; walking five row tiles of a token tile first shares each
       // activation tile between them (5.7 to 3.4 ms). Only the launch order
       // changes.
-      hipLaunchKernelGGL((DenseF16GEMMKernel<kWideBM, kBN, 2, 8, 1, 5>), grid,
+      hipLaunchKernelGGL(
+          (DenseF16GEMMKernel<kWideBM, kBN, 2, 8, 1, 5, false, false, false,
+                              false, false, false, false, kQ6K>),
+                         grid,
                          dim3(kThreads), 0, stream, w, x, out, batch, m, k);
     } else if (batch >= 1024 && (m == 16384 || m == 13312) && k == 2560) {
       // Eight row groups reuse each weight fragment across all token tiles
       // and keep fewer weight fragments live. K accumulation is unchanged.
-      hipLaunchKernelGGL((DenseF16GEMMKernel<kWideBM, kBN, 2, 8, 1>), grid,
+      hipLaunchKernelGGL(
+          (DenseF16GEMMKernel<kWideBM, kBN, 2, 8, 1, 1, false, false, false,
+                              false, false, false, false, kQ6K>),
+          grid,
                          dim3(kThreads), 0, stream, w, x, out, batch, m, k);
     } else if (batch >= 1024 && m == 2560) {
       // Shared-expert down: pairs of row tiles per token tile (-11 %).
-      hipLaunchKernelGGL((DenseF16GEMMKernel<kWideBM, kBN, 1, 4, 2, 2>), grid,
+      hipLaunchKernelGGL(
+          (DenseF16GEMMKernel<kWideBM, kBN, 1, 4, 2, 2, false, false, false,
+                              false, false, false, false, kQ6K>),
+                         grid,
                          dim3(kThreads), 0, stream, w, x, out, batch, m, k);
     } else {
-      hipLaunchKernelGGL((DenseF16GEMMKernel<kWideBM, kBN, 1, 4, 2>), grid,
+      hipLaunchKernelGGL(
+          (DenseF16GEMMKernel<kWideBM, kBN, 1, 4, 2, 1, false, false, false,
+                              false, false, false, false, kQ6K>),
+          grid,
                          dim3(kThreads), 0, stream, w, x, out, batch, m, k);
     }
   } else {
     constexpr int kBN = 64;
     const dim3 grid(static_cast<unsigned int>((batch + kBN - 1) / kBN),
                     static_cast<unsigned int>((m + kBM - 1) / kBM));
-    hipLaunchKernelGGL((DenseF16GEMMKernel<kBM, kBN, 4, 4, 2>), grid,
+    hipLaunchKernelGGL(
+        (DenseF16GEMMKernel<kBM, kBN, 4, 4, 2, 1, false, false, false, false,
+                            false, false, false, kQ6K>),
+        grid,
                        dim3(kThreads), 0, stream, w, x, out, batch, m, k);
   }
   return true;
 }
 
-bool DenseF16SsmGemm(const void* w, const __half* x, const float* conv_w,
+bool DenseF16Gemm(const void* w, const __half* x, float* out, std::size_t batch,
+                  std::size_t m, std::size_t k, hipStream_t stream,
+                  std::size_t input_stride,
+                  WeightType type) {
+  if (type == WeightType::kQ6_K) {
+    if (k % 256 != 0)
+      return false;
+    return DenseF16GemmImpl<true>(w, x, out, batch, m, k, stream, input_stride);
+  }
+  if (type != WeightType::kQ8_0)
+    return false;
+  return DenseF16GemmImpl<false>(w, x, out, batch, m, k, stream, input_stride);
+}
+
+template<bool kQ6K>
+bool DenseF16SsmGemmImpl(const void* w, const __half* x, const float* conv_w,
                      const float* history, float* qkvz, float* convolved,
                      std::uint32_t n_tokens, std::uint32_t m, std::uint32_t k,
                      std::uint32_t channels, std::uint32_t kernel,
@@ -8643,7 +8826,9 @@ bool DenseF16SsmGemm(const void* w, const __half* x, const float* conv_w,
   // Row-tile pairs per token tile in launch order (-0.9 %).
   const unsigned token_tiles = (n_tokens + 127) / 128;
   const unsigned qkv_tiles = z_stream != nullptr ? channels / 256 : m / 256;
-  hipLaunchKernelGGL((DenseF16GEMMKernel<256, 128, 2, 8, 1, 2, false, true>),
+  hipLaunchKernelGGL(
+      (DenseF16GEMMKernel<256, 128, kQ6K ? 1 : 2, 8, 1, 2, false, true, false,
+                          false, false, false, false, kQ6K>),
                      dim3(token_tiles, qkv_tiles), dim3(kThreads), 0, stream, w,
                      x, qkvz, n_tokens, m, k, nullptr, nullptr, nullptr, conv_w,
                      convolved, AttentionProjectionOutput{}, checkpoints);
@@ -8654,11 +8839,12 @@ bool DenseF16SsmGemm(const void* w, const __half* x, const float* conv_w,
     if (hipEventRecord(z_start, stream) != hipSuccess ||
         hipStreamWaitEvent(z_stream, z_start, 0) != hipSuccess)
       z_stream = stream;
-    hipLaunchKernelGGL((DenseF16GEMMKernel<256, 128, 2, 8, 1, 2, false, true>),
-                       dim3(token_tiles, m / 256 - qkv_tiles), dim3(kThreads),
-                       0, z_stream, w, x, qkvz, n_tokens, m, k, nullptr,
-                       nullptr, nullptr, conv_w, convolved,
-                       AttentionProjectionOutput{}, checkpoints, 0, qkv_tiles);
+    hipLaunchKernelGGL(
+        (DenseF16GEMMKernel<256, 128, kQ6K ? 1 : 2, 8, 1, 2, false, true,
+                            false, false, false, false, false, kQ6K>),
+        dim3(token_tiles, m / 256 - qkv_tiles), dim3(kThreads), 0, z_stream,
+        w, x, qkvz, n_tokens, m, k, nullptr, nullptr, nullptr, conv_w,
+        convolved, AttentionProjectionOutput{}, checkpoints, 0, qkv_tiles);
   }
   hipLaunchKernelGGL(
       SsmConvBoundaryKernel,
@@ -8667,6 +8853,25 @@ bool DenseF16SsmGemm(const void* w, const __half* x, const float* conv_w,
       dim3(kThreads), 0, stream, qkvz, conv_w, history, convolved, n_tokens,
       channels, m);
   return true;
+}
+
+bool DenseF16SsmGemm(const void* w, const __half* x, const float* conv_w,
+                     const float* history, float* qkvz, float* convolved,
+                     std::uint32_t n_tokens, std::uint32_t m, std::uint32_t k,
+                     std::uint32_t channels, std::uint32_t kernel,
+                     hipStream_t stream, PassCheckpoints checkpoints,
+                     hipStream_t z_stream, hipEvent_t z_start,
+                     WeightType type) {
+  if (type == WeightType::kQ6_K) {
+    return DenseF16SsmGemmImpl<true>(w, x, conv_w, history, qkvz, convolved,
+                                     n_tokens, m, k, channels, kernel, stream,
+                                     checkpoints, z_stream, z_start);
+  }
+  if (type != WeightType::kQ8_0)
+    return false;
+  return DenseF16SsmGemmImpl<false>(w, x, conv_w, history, qkvz, convolved,
+                                    n_tokens, m, k, channels, kernel, stream,
+                                    checkpoints, z_stream, z_start);
 }
 
 template<WeightType type, unsigned tokens>
