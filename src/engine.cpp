@@ -4,8 +4,10 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <gufo/ext/gguf_reader.hpp>
+#include <gufo/ext/host.hpp>
 #include <limits>
 #include <optional>
 #include <type_traits>
@@ -15,6 +17,7 @@
 #include "kernels/rocm/device_model.hpp"
 #include "kernels/rocm/executor.hpp"
 #include "kernels/rocm/kernels.hpp"
+#include "lora.hpp"
 #include "mtp_sampling.hpp"
 #include "ngram.hpp"
 #include "weights.hpp"
@@ -115,6 +118,21 @@ std::shared_ptr<Model> Model::Load(const std::string& model_path,
                                " tokens");
     return nullptr;
   }
+  // Validate the adapter against the bound trunk before any device work.
+  std::unique_ptr<LoraAdapter> lora;
+  if (!options.lora_path.empty()) {
+    lora = LoraAdapter::Open(
+        options.lora_path, options.lora_scale,
+        m->reader_->GetMetadataString("general.architecture").value_or(""),
+        LoraTargets(*m->weights_), error_msg);
+    if (!lora) {
+      return nullptr;
+    }
+    m->adapter_identity_ = lora->CacheIdentity();
+  } else if (options.lora_scale != 1.0F) {
+    AssignError(error_msg, "a LoRA scale requires a LoRA adapter");
+    return nullptr;
+  }
   try {
     m->vision_ = qwen_iq::vision::Encoder::Open(
         model_path, options.vision_model_path, c.hidden_size);
@@ -149,11 +167,21 @@ std::shared_ptr<Model> Model::Load(const std::string& model_path,
     }
     m->mtp_weights_ = std::make_unique<MtpWeights>(std::move(*mtp));
   }
-  m->device_ = rocm::DeviceModel::Upload(*m->weights_, *m->reader_,
-                                         m->mtp_weights_.get(),
-                                         m->mtp_reader_.get(), error_msg);
+  m->device_ = rocm::DeviceModel::Upload(
+      *m->weights_, *m->reader_, m->mtp_weights_.get(), m->mtp_reader_.get(),
+      error_msg, lora.get());
   if (!m->device_) {
     return nullptr;
+  }
+  if (lora) {
+    char numbers[64];
+    std::snprintf(numbers, sizeof(numbers),
+                  " scale=%.9g tensors=%zu merge=%.2fs",
+                  static_cast<double>(lora->scale()), lora->size(),
+                  m->device_->lora_seconds());
+    server::Logger::Info("model", "LoRA adapter " + lora->label() +
+                                      " sha256=" + lora->sha256() + numbers);
+    lora.reset();
   }
   if (m->mtp_weights_ &&
       m->device_->output().rows > speculative_iq::kDraftVocabPrefix) {

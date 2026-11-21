@@ -28,6 +28,7 @@
 #include "continuation_identity.hpp"
 #include "engine.hpp"
 #include "kernels/rocm/executor.hpp"
+#include "lora.hpp"
 #include "probe.hpp"
 #include "rope_scaling.hpp"
 
@@ -240,7 +241,8 @@ public:
           use_mtp_, max_context_, max_draft_tokens_,
           model_->DecodeConcurrency(),
           models::flash_next_iq::RopePositionPolicy(
-              model_->config().rope_scaling));
+              model_->config().rope_scaling),
+          model_->AdapterIdentity());
     } else {
       component_identity_ = QwenFlashNextProcessIdentity(
           model_.get(), max_context_, use_mtp_, max_draft_tokens_,
@@ -831,6 +833,10 @@ std::shared_ptr<ext::TextModelRunner> CreateQwenFlashNextTextRunner(
       *error = "Qwen3.8-Flash-Next MTP HTTP decoding requires --mtp-model";
     return nullptr;
   }
+  LoraSelection lora;
+  if (!ResolveLoraOptions(options.provider_options, &lora, error)) {
+    return nullptr;
+  }
   std::string load_error;
   auto model = Model::Load(
       options.model_path,
@@ -842,6 +848,8 @@ std::shared_ptr<ext::TextModelRunner> CreateQwenFlashNextTextRunner(
           .decode_concurrency =
               DecodeConcurrencyForSessions(options.session_count),
           .rope_scaling = rope_scaling,
+          .lora_path = lora.path,
+          .lora_scale = lora.scale,
       },
       &load_error);
   if (!model) {

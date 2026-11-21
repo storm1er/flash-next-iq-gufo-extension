@@ -31,6 +31,7 @@
 #include "qwen/vision/prompt.hpp"
 #include "bench_yarn.hpp"
 #include "engine.hpp"
+#include "lora.hpp"
 #include "rope_scaling.hpp"
 #include "testing/compare/logit_comparator.hpp"
 
@@ -194,13 +195,21 @@ std::shared_ptr<models::flash_next_iq::Model> LoadFlashNextModel(
     std::cerr << "Unsupported Flash-Next chat template: " << error << '\n';
     return nullptr;
   }
+  models::flash_next_iq::LoraSelection lora;
+  if (!models::flash_next_iq::ResolveLoraOptions(opt.provider_options, &lora,
+                                                 &error)) {
+    std::cerr << "Error: " << error << '\n';
+    return nullptr;
+  }
   auto model = models::flash_next_iq::Model::Load(
       opt.model_path,
       {.max_context = kDefaultContext,
        .mtp_model_path =
            opt.speculative_backend == "mtp" ? opt.mtp_model_path : "",
        .max_draft_tokens = opt.draft_tokens,
-       .vision_model_path = opt.vision_model_path},
+       .vision_model_path = opt.vision_model_path,
+       .lora_path = lora.path,
+       .lora_scale = lora.scale},
       &error);
   PrintModelLoadTime(load_start, model != nullptr);
   if (!model)
@@ -327,6 +336,11 @@ int RunQwen38FlashNextBenchmarkImpl(
   }
 
   std::string error;
+  qfn::LoraSelection lora;
+  if (!qfn::ResolveLoraOptions(options.provider_options, &lora, &error)) {
+    std::cerr << "Error: " << error << '\n';
+    return 1;
+  }
   auto model = qfn::Model::Load(
       options.model_path,
       qfn::ModelOptions{
@@ -334,6 +348,8 @@ int RunQwen38FlashNextBenchmarkImpl(
           .mtp_model_path = mtp ? options.mtp_model_path : "",
           .max_draft_tokens = std::max<std::uint32_t>(1, options.draft_tokens),
           .rope_scaling = rope_scaling,
+          .lora_path = lora.path,
+          .lora_scale = lora.scale,
       },
       &error);
   if (model == nullptr) {

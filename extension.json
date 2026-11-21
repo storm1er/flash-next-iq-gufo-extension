@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "flash_next_iq",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "api_version": ">= 0.3.0",
   "entry": "flash_next_iq_register",
   "registration_target": "gufo_flash_next_iq",
@@ -26,7 +26,36 @@
       "entry": "flash_next_iq_provider_register"
     }
   ],
-  "options": [],
+  "options": [
+    {
+      "name": "--lora",
+      "type": "path",
+      "commands": [
+        "serve",
+        "bench",
+        "prompt",
+        "chat"
+      ],
+      "providers": [
+        "flash-next-iq"
+      ],
+      "help": "llama.cpp GGUF LoRA adapter merged into the weights at load"
+    },
+    {
+      "name": "--lora-scale",
+      "type": "number",
+      "commands": [
+        "serve",
+        "bench",
+        "prompt",
+        "chat"
+      ],
+      "providers": [
+        "flash-next-iq"
+      ],
+      "help": "Multiplier of the --lora update (default 1)"
+    }
+  ],
   "targets": {
     "gufo_flash_next_iq": {
       "requires": []
@@ -35,6 +64,18 @@
       "requires": [
         "hip"
       ]
+    },
+    "flash_next_iq_lora_test": {
+      "requires": [
+        "testing"
+      ],
+      "role": "test"
+    },
+    "flash_next_iq_lora_oracle": {
+      "requires": [
+        "testing"
+      ],
+      "role": "test"
     },
     "flash_next_iq_iq_ops_test": {
       "requires": [

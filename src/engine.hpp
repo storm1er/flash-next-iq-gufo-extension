@@ -57,6 +57,11 @@ struct ModelOptions {
   /// artifact's own setting, which is always off: no GGUF metadata key sets
   /// it today.
   std::optional<RopeScaling> rope_scaling{};
+  /// llama.cpp GGUF LoRA adapter merged into the trunk weights at load
+  /// (`LoraAdapter`); empty for none.
+  std::string lora_path{};
+  /// Multiplies the adapter's alpha / rank; must stay 1 without an adapter.
+  float lora_scale = 1.0F;
 };
 
 class Session;
@@ -98,6 +103,11 @@ public:
     return options_.decode_concurrency;
   }
   [[nodiscard]] std::string ModelName() const;
+  /// The `adapters=` value of the disk cache identity: "none", or the merged
+  /// LoRA's `LoraAdapter::CacheIdentity()`.
+  [[nodiscard]] const std::string& AdapterIdentity() const noexcept {
+    return adapter_identity_;
+  }
   [[nodiscard]] const Config& config() const noexcept;
   [[nodiscard]] const tokenization_iq::QwenTokenizer& tokenizer() const noexcept {
     return *tokenizer_;
@@ -119,6 +129,7 @@ private:
   Model() = default;
 
   ModelOptions options_;
+  std::string adapter_identity_{"none"};
   std::shared_ptr<core::GgufReader> reader_;
   std::shared_ptr<core::GgufReader> mtp_reader_;
   std::unique_ptr<ModelWeights> weights_;
@@ -269,7 +280,8 @@ public:
       SnapshotMode mode = SnapshotMode::kBorrowed) const;
   [[nodiscard]] bool OwnsSnapshot(
       const SessionSnapshot& snapshot) const noexcept;
-  /// Replaces this session's context with a snapshot of the same model.
+  /// Replaces this session's context with a snapshot of the same model,
+  /// including any merged LoRA adapter and its scale.
   /// Image snapshots require matching consumed images via ConfigureVision;
   /// the attached prompt may append future images. Pixels are not serialized.
   /// Text snapshots clear images; reattach the request after restoring.

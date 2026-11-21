@@ -94,6 +94,25 @@ For the slim `latest` image add `-v /opt/rocm:/opt/rocm:ro` (or the versioned di
 (44) and `render` (992) groups; the same keys work in compose. `gufo prompt`, `gufo chat` and
 `gufo bench` take the same model options.
 
+### LoRA adapter
+
+The provider can merge a llama.cpp GGUF **LoRA adapter** (`general.type=adapter`, `adapter.type=lora`, F32 `<tensor>.lora_a` / `<tensor>.lora_b` pairs) into the trunk while it loads, so a fine-tune runs from the stock shards and the adapter, with no merged copy of the model on disk:
+
+```sh
+gufo serve llm --model /models/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf \
+  --lora /models/adapter.gguf --lora-scale 1
+```
+
+- The adapter may update the `ssm_out`, `attn_output` and `ffn_down_shexp` weights of the 48 trunk layers. The provider checks every adapter tensor against the model before it allocates GPU memory and refuses an adapter it can't apply. The MTP head stays unchanged.
+- Each updated weight is the stock weight plus `--lora-scale` × alpha / rank × B·A, computed in float32 and stored as Q8_0. `--lora-scale` defaults to 1 and requires `--lora`.
+- UD 3.1 keeps `ssm_out` and `ffn_down_shexp` in Q8_0, so they keep their format and size. Its 12 `attn_output` tensors are Q6_K; an adapter that updates them turns them into Q8_0 tensors of the same shape (3.63 MiB more device memory each, 43.6 MiB for all 12), which the Q8_0 kernels run. With the rank-one adapter measured below, the Q8_0 result was closer to the exact merge than a Q6_K re-encoding on RMS error for every tensor (1.2e-4 against 3.0e-4 overall), though one tensor's largest single error was higher.
+- The arithmetic matches Gufo's built-in Flash-Next adapter merge: Q8_0 targets are byte-identical to an offline llama.cpp/gguf-py merge.
+- `serve llm`, `chat`, `prompt` and `bench` accept both options. One adapter applies to every request.
+- The log names the adapter, its SHA-256, the scale and the merge time. The merge runs on OpenMP threads when the build finds OpenMP, and the module then needs `libgomp.so.1` at load, with or without `--lora`; the stock `gufo-runtime` image and this repository's runtime images provide it.
+- The disk cache keeps entries per adapter file contents and scale: a server never restores prompts cached with another adapter, another scale or none.
+- `bench --validate-prefill` with `--lora` compares batched prefill against token-by-token evaluation on the same merged weights, so a failure there is not an expected adapter difference.
+- Measured on gfx1151 (stock `gufo-runtime` 0.35.0, UD 3.1 UD-IQ4_XS, `--context 32768`, MTP off) with a 96-tensor rank-one adapter: load 10.0 s against 10.1 s stock (merge 0.8–0.9 s), device memory 65,648 against 65,624 MiB, prefill of a 3.6K-token prompt 1,668 against 1,700 tok/s, decode 32.2 against 32.5 tok/s. `tests/lora_oracle.cpp` checks a merge against an offline one; `tests/lora_test.cpp` covers the Q6_K path on the CPU.
+
 ### Known limitations
 
 - Prompt passes are not split by layers. Beside decoding sessions a prompt runs in 512-token passes
@@ -197,6 +216,8 @@ Pin the new release in `.upstream-rev`, `flake.nix`/`flake.lock` and the CI `RUN
 workload, keep `api_version` at the lowest revision that has everything used, and bump `version`.
 
 ## Release history
+
+- **0.3.0** (2026-11-21): `--lora` / `--lora-scale` merge a llama.cpp GGUF LoRA adapter into the trunk at load (ported from Gufo's built-in Flash-Next); Q6_K targets are merged into Q8_0. Built and served as a module in stock `gufo-runtime` 0.35.0 (extension API 0.3.20).
 
 - **0.2.0** (2026-11-12): extension API 0.3 / Gufo 0.34.0, installable as a module; GGML Q2_0 without a
   Gufo core patch (`accepts_unsized_tensors`); text scheduling profile. UD 3.1 fixes: IQ4_XS token

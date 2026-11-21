@@ -142,6 +142,7 @@ gufo_extension_target(
     src/bench_yarn.cpp
     src/probe.cpp
     src/continuation_identity.cpp
+    src/lora.cpp
     src/extension.cpp
   LINK_LIBRARIES
     gufo_ext_runtime
@@ -154,6 +155,13 @@ if(TARGET gufo_flash_next_iq)
   if(ENGINE_ENABLE_HIP)
     # gufo_core propagates this define in-tree; match the in-tree base target.
     target_compile_definitions(gufo_flash_next_iq PUBLIC ENGINE_ENABLE_HIP=1)
+  endif()
+  # LoRA merges must match offline merges bit for bit: no fused multiply-add.
+  set_source_files_properties(${FNIQ}/lora.cpp
+    PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+  # The merge spreads rows over OpenMP threads, as gufo_core does in-tree.
+  if(TARGET OpenMP::OpenMP_CXX)
+    target_link_libraries(gufo_flash_next_iq PRIVATE OpenMP::OpenMP_CXX)
   endif()
 endif()
 
@@ -170,29 +178,29 @@ set_source_files_properties(
   ${FNIQ}/reference.cpp
   PROPERTIES COMPILE_OPTIONS "-O2")
 
-if (ENGINE_ENABLE_HIP)
-  gufo_extension_target(
-    NAME gufo_flash_next_iq_hip
-    SOURCES
-      src/continuation_adapter.cpp
-      src/kernels/rocm/blaslt.cpp
-      src/kernels/rocm/device_model.cpp
-      src/kernels/rocm/executor.cpp
-      src/kernels/rocm/batch.cpp
-      src/engine.cpp
-      src/runner.cpp
-      src/drivers.cpp
-      src/provider.cpp
-    LINK_LIBRARIES
-      gufo_flash_next_iq
-      gufo_ext_cache
-      gufo_flash_next_iq_qwen_hip
-      gufo_flash_next_iq_mmq
-      hip::host
-      roc::hipblas
-      roc::hipblaslt
-  )
-endif()
+# Declared unconditionally: without HIP the target is disabled, but a CPU
+# build (the LoRA test) still needs every manifest target defined.
+gufo_extension_target(
+  NAME gufo_flash_next_iq_hip
+  SOURCES
+    src/continuation_adapter.cpp
+    src/kernels/rocm/blaslt.cpp
+    src/kernels/rocm/device_model.cpp
+    src/kernels/rocm/executor.cpp
+    src/kernels/rocm/batch.cpp
+    src/engine.cpp
+    src/runner.cpp
+    src/drivers.cpp
+    src/provider.cpp
+  LINK_LIBRARIES
+    gufo_flash_next_iq
+    gufo_ext_cache
+    gufo_flash_next_iq_qwen_hip
+    gufo_flash_next_iq_mmq
+    hip::host
+    roc::hipblas
+    roc::hipblaslt
+)
 
 if(TARGET gufo_flash_next_iq_hip)
   gufo_extension_hip_sources(gufo_flash_next_iq_hip
@@ -237,6 +245,35 @@ set(_flash_next_iq_test_libs gufo_ext_core gufo_ext_cache)
 if(ENGINE_ENABLE_HIP)
   list(APPEND _flash_next_iq_test_libs gufo_ext_hip)
 endif()
+
+# LoRA merge checks on the CPU: Q6_K sources merged to Q8_0, adapter
+# validation, options and cache identity. No GPU, no model files.
+gufo_extension_target(
+  NAME flash_next_iq_lora_test
+  SOURCES
+    tests/lora_test.cpp
+  LINK_LIBRARIES
+    gufo_flash_next_iq
+    gufo_ext_runtime
+    gufo_ext_core
+)
+if(TARGET flash_next_iq_lora_test)
+  add_test(NAME flash_next_iq.lora COMMAND flash_next_iq_lora_test)
+  set_tests_properties(flash_next_iq.lora PROPERTIES
+    LABELS "flash_next_iq;cpu")
+endif()
+
+# Real-weight LoRA oracle: reads multi-GiB checkpoints, so it is not a ctest;
+# usage in tests/lora_oracle.cpp.
+gufo_extension_target(
+  NAME flash_next_iq_lora_oracle
+  SOURCES
+    tests/lora_oracle.cpp
+  LINK_LIBRARIES
+    gufo_flash_next_iq
+    gufo_ext_runtime
+    gufo_ext_core
+)
 
 foreach(test_name IN ITEMS iq_ops routed_wmma_ops)
   gufo_extension_target(

@@ -11,6 +11,10 @@
 
 #include "weights.hpp"
 
+namespace gufo::models::flash_next_iq {
+class LoraAdapter;
+}
+
 namespace gufo::models::flash_next_iq::rocm {
 
 /// One weight resident in device memory, still in its GGUF encoding.
@@ -95,10 +99,13 @@ public:
   DeviceModel& operator=(const DeviceModel&) = delete;
 
   /// Streams tensors from the same open files used to bind their metadata.
+  /// With `lora`, each trunk tensor it patches is merged on the host and
+  /// uploaded as Q8_0 in its stock shape instead (a Q6_K tensor changes
+  /// format); the MTP block never is.
   [[nodiscard]] static std::unique_ptr<DeviceModel> Upload(
       const ModelWeights& weights, const core::GgufReader& reader,
       const MtpWeights* mtp, const core::GgufReader* mtp_reader,
-      std::string* error_msg = nullptr);
+      std::string* error_msg = nullptr, const LoraAdapter* lora = nullptr);
 
   const Config& config() const noexcept { return config_; }
   const DeviceTensor& token_embd() const noexcept { return token_embd_; }
@@ -136,6 +143,8 @@ public:
   [[nodiscard]] std::size_t max_q8_cols() const noexcept {
     return max_q8_cols_;
   }
+  /// Wall time spent merging and copying LoRA-patched tensors at upload.
+  [[nodiscard]] double lora_seconds() const noexcept { return lora_seconds_; }
 
 private:
   friend struct DeviceModelTestAccess;  // synthetic models in GPU tests
@@ -155,6 +164,7 @@ private:
   std::size_t bytes_{0};
   std::size_t max_half_cols_{1};
   std::size_t max_q8_cols_{32};
+  double lora_seconds_{0};
 };
 
 }  // namespace gufo::models::flash_next_iq::rocm
