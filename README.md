@@ -121,6 +121,8 @@ tensors, so they run beside a loaded server.
 `gufo bench --validate-prefill 32` (GPU prefill logits against the reference forward): cosine 0.9974,
 RMSE 0.20, same top token on UD 3.1; 0.9943 / 0.32 on the 2026-10 export.
 
+With a freshly started single-session UD-IQ4_XS server and speculation off, run `python3 tests/cache_replay.py http://127.0.0.1:8080` to check greedy replay. It verifies a live prefix hit with a seven-token suffix and compares the generated text and token scores with a full prefill.
+
 ### End-to-end (gfx1151, 128 GB, Nov 12 2026)
 
 Two sessions, 262,144-token context, `--cache-ram-bytes 12884901888`, BF16 mmproj, default sampling; one

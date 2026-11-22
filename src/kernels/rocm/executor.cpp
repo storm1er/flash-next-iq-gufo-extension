@@ -1957,10 +1957,8 @@ void Executor::PrepareHalfInput(const float* x, std::uint32_t rows,
 bool Executor::DenseF16Route(const DeviceTensor& w,
                              std::uint32_t n_tokens) const {
   if (w.type == GgmlType::kQ6_K) {
-    // Q6_K (the UD 3.1 trunk) has no int8 WMMA route: every wide prefill
-    // shape takes the F16 matrix cores. Decode and verification batches
-    // keep the single-row GEMV arithmetic.
-    return WidePrefill(n_tokens) && w.cols % 256 == 0 &&
+    // A short suffix after a cache hit needs the same arithmetic as full prefill.
+    return prefill_phase && w.cols % 256 == 0 &&
            w.cols <= kDenseF16MaxCols && w.cols <= model_->max_half_cols();
   }
   return w.type == GgmlType::kQ8_0 && MatrixRows(n_tokens) &&
@@ -1974,12 +1972,11 @@ bool Executor::Dense(const DeviceTensor& w, const float* x, float* out,
       w.type == GgmlType::kQ5_0) {
     // Q6_K covers the trunk's attention, shared experts and the logits head;
     // Q4_K and Q5_0 arrive through the Q4_K_M MTP sidecar's attention,
-    // hyperconnected mixers and eh_proj. Wide prefill runs Q6_K on the F16
-    // matrix cores (as Q8_0 runs its F16/W8A8 routes) and the other shapes
-    // and formats on the tiled MMQ GEMM. Decode and verification rows keep
-    // the single-row GEMV arithmetic so they agree bit for bit, eight rows
-    // per launch.
-    if (WidePrefill(n_tokens)) {
+    // hyperconnected mixers and eh_proj. Q6_K uses the same prefill route at
+    // every width: F16 where supported, tiled MMQ otherwise. The drafter's
+    // Q4_K and Q5_0 use MMQ only for wide prefill. Decode and verification
+    // keep the single-row GEMV arithmetic.
+    if (prefill_phase && (w.type == GgmlType::kQ6_K || n_tokens > kVecBatch)) {
       if (DenseF16Route(w, n_tokens)) {
         const auto piece = static_cast<std::uint32_t>(options_.max_batch);
         for (std::uint32_t r0 = 0; r0 < n_tokens; r0 += piece) {
@@ -3154,10 +3151,10 @@ bool Executor::AttentionOutput(const DeviceLayer& l, float* out,
   const Config& c = config();
   const std::uint32_t q_dim = c.AttentionQDim();
   // The UD 3.1 Q6_K output projection (K = 6144) is wider than the F16
-  // staging rows, so wide prefill narrows the gated context into the Q/gate
+  // staging rows, so prefill narrows the gated context into the Q/gate
   // projection rows instead: s_.qg is dead once attention has consumed q
   // and the gate, and holds T * 13312 floats, room for T * 6144 halves.
-  if (l.attn_out.type == GgmlType::kQ6_K && WidePrefill(n_tokens) &&
+  if (l.attn_out.type == GgmlType::kQ6_K && prefill_phase &&
       n_tokens <= options_.max_batch && l.attn_out.cols == q_dim &&
       q_dim % 256 == 0 && s_.qg != nullptr) {
     auto* ctx_half = reinterpret_cast<__half*>(s_.qg);
